@@ -32,6 +32,9 @@ jobs:
   ctk-spike:
     name: CTK Spike (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
     strategy:
       fail-fast: false
       matrix:
@@ -60,7 +63,7 @@ jobs:
             id
             echo ""
             echo "=== launchctl print gui/$(id -u) (first 20 lines) ==="
-            launchctl print "gui/$(id -u)" 2>&1 | head -n 20 || true
+            { launchctl print "gui/$(id -u)" 2>&1 || true; } | head -n 20 || true
           } 2>&1 | tee "$LOG"
 
       - name: "Step 2: Download & install Host DMG"
@@ -115,7 +118,7 @@ jobs:
             fi
 
             echo "LiminalKeysHostCLI helper verified at $CLI_PATH"
-            "$CLI_PATH" --version || true
+            "$CLI_PATH" --version
           } 2>&1 | tee "$LOG"
 
       - name: "Step 3: Register Token Extension"
@@ -189,7 +192,6 @@ jobs:
         run: |
           LOG="${{ runner.temp }}/spike/step6.log"
           {
-            set -e
             CLI="/Applications/Liminal Keys Virtual Smartcard.app/Contents/Helpers/LiminalKeysHostCLI"
             API_BASE="${{ inputs.api_base_url }}"
             IDENTITY_SHA1="${{ inputs.identity_sha1 }}"
@@ -229,7 +231,6 @@ jobs:
         run: |
           LOG="${{ runner.temp }}/spike/step8.log"
           {
-            set -e
             TARGET_BIN="${{ runner.temp }}/t"
             IDENTITY="${{ inputs.identity_sha1 }}"
 
