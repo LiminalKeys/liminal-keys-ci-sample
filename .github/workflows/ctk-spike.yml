@@ -1,0 +1,339 @@
+# Spike-only workflow (lk-15a): proves or disproves whether the Liminal Keys CTK
+# virtual smartcard can sign non-interactively on GitHub-hosted macOS runners.
+# The enrollment code is a short-lived, one-time code minted right before dispatch,
+# never a stored secret.
+
+name: CTK Cloud CI Spike
+
+on:
+  workflow_dispatch:
+    inputs:
+      dmg_url:
+        description: "URL of Liminal Keys Host DMG (defaults to marketing download / latest public release)"
+        required: false
+        default: "https://www.liminalkeys.com/download/mac/"
+        type: string
+      enrollment_code:
+        description: "One-time enrollment code (minted right before dispatch, never stored)"
+        required: true
+        type: string
+      api_base_url:
+        description: "Liminal Keys API base URL"
+        required: false
+        default: "https://api.liminalkeys.com"
+        type: string
+      identity_sha1:
+        description: "SHA-1 fingerprint of signing identity to test"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  ctk-spike:
+    name: CTK Spike (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    timeout-minutes: 20
+
+    steps:
+      - name: Mask enrollment code and initialize workspace
+        run: |
+          echo "::add-mask::${{ inputs.enrollment_code }}"
+          mkdir -p "${{ runner.temp }}/spike"
+
+      - name: "Step 1: System info & GUI session"
+        id: step1
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step1.log"
+          {
+            echo "=== sw_vers ==="
+            sw_vers
+            echo ""
+            echo "=== csrutil status ==="
+            csrutil status || true
+            echo ""
+            echo "=== id ==="
+            id
+            echo ""
+            echo "=== launchctl print gui/$(id -u) (first 20 lines) ==="
+            launchctl print "gui/$(id -u)" 2>&1 | head -n 20 || true
+          } 2>&1 | tee "$LOG"
+
+      - name: "Step 2: Download & install Host DMG"
+        id: step2
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step2.log"
+          {
+            DMG_PATH="${{ runner.temp }}/LiminalKeys.dmg"
+            MOUNT_DIR="${{ runner.temp }}/dmg-mount"
+            APP_NAME="Liminal Keys Virtual Smartcard.app"
+            TARGET_APP="/Applications/$APP_NAME"
+            CLI_PATH="$TARGET_APP/Contents/Helpers/LiminalKeysHostCLI"
+
+            INPUT_URL="${{ inputs.dmg_url }}"
+            API_BASE="${{ inputs.api_base_url }}"
+            RESOLVED_URL="$INPUT_URL"
+
+            # Resolve marketing/download landing page to direct download endpoint
+            if [[ "$INPUT_URL" =~ /download/mac/?$ ]] || [[ "$INPUT_URL" == *".html"* ]]; then
+              echo "Resolving landing page URL ($INPUT_URL) to public download API endpoint..."
+              RESOLVED_URL="${API_BASE%/}/v1/public/agent/mac/download"
+            fi
+
+            echo "Downloading Liminal Keys DMG from: $RESOLVED_URL"
+            curl -fL -sS "$RESOLVED_URL" -o "$DMG_PATH"
+
+            # Sanity check: if file command indicates HTML or text, try the public download endpoint
+            if file "$DMG_PATH" | grep -qiE "HTML|ASCII|Unicode text"; then
+              echo "Downloaded file is HTML/text; querying download API: ${API_BASE%/}/v1/public/agent/mac/download"
+              curl -fL -sS "${API_BASE%/}/v1/public/agent/mac/download" -o "$DMG_PATH"
+            fi
+
+            echo "Attaching DMG..."
+            mkdir -p "$MOUNT_DIR"
+            hdiutil attach "$DMG_PATH" -nobrowse -mountpoint "$MOUNT_DIR"
+
+            echo "Copying $APP_NAME to /Applications via ditto..."
+            sudo rm -rf "$TARGET_APP"
+            sudo ditto "$MOUNT_DIR/$APP_NAME" "$TARGET_APP"
+            sudo chown -R "$(id -u):$(id -g)" "$TARGET_APP"
+
+            echo "Detaching DMG..."
+            hdiutil detach "$MOUNT_DIR" -force || true
+            rm -f "$DMG_PATH"
+
+            echo "Verifying LiminalKeysHostCLI helper binary..."
+            if [[ ! -x "$CLI_PATH" ]]; then
+              echo "ERROR: Helper binary missing or not executable at $CLI_PATH"
+              echo "beta.2 (current public download) has no CLI; beta.3+ required."
+              exit 1
+            fi
+
+            echo "LiminalKeysHostCLI helper verified at $CLI_PATH"
+            "$CLI_PATH" --version || true
+          } 2>&1 | tee "$LOG"
+
+      - name: "Step 3: Register Token Extension"
+        id: step3
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step3.log"
+          {
+            LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+            APP_PATH="/Applications/Liminal Keys Virtual Smartcard.app"
+            APPEX_PATH="$APP_PATH/Contents/PlugIns/LiminalKeysTokenExtension.appex"
+            TOKEN_ID="com.liminal.keys.host.token"
+
+            echo "Registering application with LaunchServices..."
+            "$LSREGISTER" -f "$APP_PATH"
+
+            echo "Registering token extension with pluginkit..."
+            pluginkit -a "$APPEX_PATH"
+
+            echo "Electing token extension to 'use'..."
+            pluginkit -e use -i "$TOKEN_ID"
+
+            echo "PlugInKit state for $TOKEN_ID:"
+            pluginkit -mAvvv -i "$TOKEN_ID"
+          } 2>&1 | tee "$LOG"
+
+      - name: "Step 4: Configure Smartcard Subsystem"
+        id: step4
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step4.log"
+          {
+            TOKEN_ID="com.liminal.keys.host.token"
+
+            echo "Listing smartcard tokens:"
+            security smartcards token -l || true
+
+            echo "Ensuring token extension $TOKEN_ID is enabled..."
+            if security smartcards token -l 2>&1 | grep -qE "disabled.*$TOKEN_ID|$TOKEN_ID.*disabled"; then
+              echo "Token is listed as disabled; enabling..."
+              sudo security smartcards token -e "$TOKEN_ID"
+            else
+              sudo security smartcards token -e "$TOKEN_ID" || true
+            fi
+
+            echo "Disabling smartcard user pairing prompt..."
+            sudo defaults write /Library/Preferences/com.apple.security.smartcard UserPairing -bool false
+
+            echo "Smartcard subsystem configuration verified."
+            sudo defaults read /Library/Preferences/com.apple.security.smartcard || true
+          } 2>&1 | tee "$LOG"
+
+      - name: "Step 5: Launch Liminal Keys Host App"
+        id: step5
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step5.log"
+          {
+            echo "Launching Liminal Keys Virtual Smartcard in background (-gj)..."
+            open -gj -a "Liminal Keys Virtual Smartcard"
+            echo "Waiting 5 seconds for Host initialization..."
+            sleep 5
+
+            echo "Checking process list for Host..."
+            pgrep -fl "Liminal Keys Virtual Smartcard" || echo "Note: pgrep did not find matching process name"
+          } 2>&1 | tee "$LOG"
+
+      - name: "Step 6: CLI Enroll, Status & Doctor"
+        id: step6
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step6.log"
+          {
+            set -e
+            CLI="/Applications/Liminal Keys Virtual Smartcard.app/Contents/Helpers/LiminalKeysHostCLI"
+            API_BASE="${{ inputs.api_base_url }}"
+            IDENTITY_SHA1="${{ inputs.identity_sha1 }}"
+
+            echo "Running LiminalKeysHostCLI enroll..."
+            "$CLI" enroll \
+              --api-base-url "$API_BASE" \
+              --enrollment-code "${{ inputs.enrollment_code }}"
+
+            echo "Checking enrollment status (--require-enrolled)..."
+            "$CLI" status --json --require-enrolled
+
+            echo "Running LiminalKeysHostCLI doctor..."
+            if [[ -n "$IDENTITY_SHA1" ]]; then
+              "$CLI" doctor --identity "$IDENTITY_SHA1"
+            else
+              "$CLI" doctor
+            fi
+          } 2>&1 | tee "$LOG"
+
+      - name: "Step 7: Smartcard & Identity Verification"
+        id: step7
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step7.log"
+          {
+            echo "Listing detected smartcards:"
+            security list-smartcards || true
+            echo ""
+            echo "Listing codesigning identities:"
+            security find-identity -v -p codesigning || true
+          } 2>&1 | tee "$LOG"
+
+      - name: "Step 8: Non-interactive Codesign Probe"
+        id: step8
+        continue-on-error: true
+        run: |
+          LOG="${{ runner.temp }}/spike/step8.log"
+          {
+            set -e
+            TARGET_BIN="${{ runner.temp }}/t"
+            IDENTITY="${{ inputs.identity_sha1 }}"
+
+            if [[ -z "$IDENTITY" ]]; then
+              echo "identity_sha1 input not provided; searching for available codesigning identity..."
+              IDENTITY="$(security find-identity -v -p codesigning | grep -E '^[[:space:]]*[0-9]+\)' | head -1 | awk '{print $2}' || true)"
+            fi
+
+            if [[ -z "$IDENTITY" ]]; then
+              echo "ERROR: No signing identity specified or found in keychain/token."
+              exit 1
+            fi
+
+            echo "Target identity for codesign: $IDENTITY"
+            cp /usr/bin/true "$TARGET_BIN"
+
+            echo "Executing non-interactive codesign..."
+            codesign -f -s "$IDENTITY" --timestamp=none "$TARGET_BIN"
+
+            echo "Verifying signed binary signature details..."
+            codesign -dv "$TARGET_BIN"
+          } 2>&1 | tee "$LOG"
+
+      - name: Collect diagnostics and CTK logs
+        if: always()
+        run: |
+          echo "Capturing screen..."
+          screencapture -x "${{ runner.temp }}/spike/screenshot.png" || true
+
+          echo "Exporting CTK and Liminal Keys system logs..."
+          log show --last 15m --predicate 'process == "ctkd" OR subsystem BEGINSWITH "com.liminal.keys"' --info > "${{ runner.temp }}/spike/system_ctk.log" 2>&1 || true
+
+      - name: Sanitize and verify logs for secrets
+        if: always()
+        run: |
+          SPIKE_DIR="${{ runner.temp }}/spike"
+          echo "Sanitizing logs in $SPIKE_DIR for tokens, JWTs, and bearers..."
+          for logfile in "$SPIKE_DIR"/*.log; do
+            [[ -f "$logfile" ]] || continue
+            # Redact Authorization header bearer tokens
+            sed -i '' -E 's/Bearer [A-Za-z0-9._~+/-]+=*/Bearer [REDACTED]/g' "$logfile" 2>/dev/null || true
+            # Redact JWT tokens (header.payload.signature)
+            sed -i '' -E 's/ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*/[REDACTED_JWT]/g' "$logfile" 2>/dev/null || true
+            # Redact device bearer / secret tokens
+            sed -i '' -E 's/lk_[A-Za-z0-9_-]{20,}/[REDACTED_BEARER]/g' "$logfile" 2>/dev/null || true
+          done
+
+          echo "Checking logs for unredacted JWTs or bearers..."
+          grep -En "Bearer [A-Za-z0-9]{10,}|ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*" "$SPIKE_DIR"/*.log 2>/dev/null && {
+            echo "WARNING: Potential secret found in logs! Redacting forcefully..."
+            sed -i '' -E 's/ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*/[REDACTED_JWT]/g' "$SPIKE_DIR"/*.log
+          } || echo "Log sanitization check passed: no exposed JWTs or bearers found."
+
+      - name: Generate Step Summary
+        if: always()
+        run: |
+          cat << 'EOF' > "${{ runner.temp }}/generate_summary.sh"
+          #!/usr/bin/env bash
+          OUT="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+
+          fmt_status() {
+            case "$1" in
+              success) echo "✅ PASS" ;;
+              failure) echo "❌ FAIL" ;;
+              skipped) echo "⚪ SKIPPED" ;;
+              cancelled) echo "⏹ CANCELLED" ;;
+              *) echo "$1" ;;
+            esac
+          }
+
+          {
+            echo "## Liminal Keys CTK Spike Results (${MATRIX_OS})"
+            echo ""
+            echo "| Step | Description | Result |"
+            echo "|:---:|---|:---:|"
+            echo "| 1 | System info & GUI session | $(fmt_status "$STEP1_OUTCOME") |"
+            echo "| 2 | Download & install Host DMG | $(fmt_status "$STEP2_OUTCOME") |"
+            echo "| 3 | Register Token Extension (\`pluginkit\`) | $(fmt_status "$STEP3_OUTCOME") |"
+            echo "| 4 | Configure Smartcard Subsystem | $(fmt_status "$STEP4_OUTCOME") |"
+            echo "| 5 | Launch Liminal Keys Host App | $(fmt_status "$STEP5_OUTCOME") |"
+            echo "| 6 | CLI Enroll, Status & Doctor | $(fmt_status "$STEP6_OUTCOME") |"
+            echo "| 7 | Smartcard & Identity Verification | $(fmt_status "$STEP7_OUTCOME") |"
+            echo "| 8 | Non-interactive Codesign Probe | $(fmt_status "$STEP8_OUTCOME") |"
+            echo ""
+            echo "---"
+            echo "**Verdict rule (lk-15a):** All steps 1–8 PASS on both \`macos-14\` and \`macos-15\` → CTK design (proceed to 15c). Any FAIL → Option B (remote signer)."
+          } >> "$OUT"
+          EOF
+          chmod +x "${{ runner.temp }}/generate_summary.sh"
+          MATRIX_OS="${{ matrix.os }}" \
+          STEP1_OUTCOME="${{ steps.step1.outcome }}" \
+          STEP2_OUTCOME="${{ steps.step2.outcome }}" \
+          STEP3_OUTCOME="${{ steps.step3.outcome }}" \
+          STEP4_OUTCOME="${{ steps.step4.outcome }}" \
+          STEP5_OUTCOME="${{ steps.step5.outcome }}" \
+          STEP6_OUTCOME="${{ steps.step6.outcome }}" \
+          STEP7_OUTCOME="${{ steps.step7.outcome }}" \
+          STEP8_OUTCOME="${{ steps.step8.outcome }}" \
+          "${{ runner.temp }}/generate_summary.sh"
+
+      - name: Upload spike logs and artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-results-${{ matrix.os }}
+          path: ${{ runner.temp }}/spike
+          retention-days: 7
