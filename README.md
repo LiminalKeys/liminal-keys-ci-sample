@@ -14,6 +14,8 @@ It is public so hosted macOS runner minutes are free. It exists only to check wh
 
 The spike workflow [`.github/workflows/ctk-spike.yml`](.github/workflows/ctk-spike.yml) executes work item **lk-15a**: proving or disproving whether the Liminal Keys CryptoTokenKit virtual smartcard signs non-interactively on standard GitHub-hosted macOS runners (`macos-14` Sonoma and `macos-15` Sequoia).
 
+Run once per OS, with a fresh one-time enrollment code for each dispatch.
+
 ### Dispatch inputs
 
 The workflow is triggered manually via `workflow_dispatch` (`gh workflow run ctk-spike.yml`):
@@ -24,6 +26,7 @@ The workflow is triggered manually via `workflow_dispatch` (`gh workflow run ctk
 | `enrollment_code` | Short-lived one-time enrollment code minted right before dispatch (masked immediately) | *(Required)* |
 | `api_base_url` | Liminal Keys API base URL | `https://api.liminalkeys.com` |
 | `identity_sha1` | SHA-1 thumbprint of the test signing identity | *(Optional; autodetected if omitted)* |
+| `os` | macOS runner for this dispatch (`macos-15` or `macos-14`). One OS per run; each run needs a fresh one-time code | `macos-15` |
 
 ### Execution steps
 
