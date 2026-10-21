@@ -27,18 +27,19 @@ on:
         required: false
         default: ""
         type: string
+      os:
+        description: "macOS runner (one per run; each needs a fresh one-time code)"
+        type: choice
+        options: [macos-15, macos-14]
+        default: macos-15
 
 jobs:
   ctk-spike:
-    name: CTK Spike (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: CTK Spike (${{ inputs.os }})
+    runs-on: ${{ inputs.os }}
     defaults:
       run:
         shell: bash -eo pipefail {0}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-14, macos-15]
     timeout-minutes: 20
 
     steps:
@@ -302,7 +303,7 @@ jobs:
           }
 
           {
-            echo "## Liminal Keys CTK Spike Results (${MATRIX_OS})"
+            echo "## Liminal Keys CTK Spike Results (${SPIKE_OS})"
             echo ""
             echo "| Step | Description | Result |"
             echo "|:---:|---|:---:|"
@@ -320,7 +321,7 @@ jobs:
           } >> "$OUT"
           EOF
           chmod +x "${{ runner.temp }}/generate_summary.sh"
-          MATRIX_OS="${{ matrix.os }}" \
+          SPIKE_OS="${{ inputs.os }}" \
           STEP1_OUTCOME="${{ steps.step1.outcome }}" \
           STEP2_OUTCOME="${{ steps.step2.outcome }}" \
           STEP3_OUTCOME="${{ steps.step3.outcome }}" \
@@ -335,6 +336,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: spike-results-${{ matrix.os }}
+          name: spike-results-${{ inputs.os }}
           path: ${{ runner.temp }}/spike
           retention-days: 7

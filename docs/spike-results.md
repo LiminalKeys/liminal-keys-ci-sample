@@ -30,6 +30,7 @@
 
 | Step | Description | macos-14 (Sonoma) | macos-15 (Sequoia) | Notes |
 |:---:|---|:---:|:---:|---|
+| | **Run URL** | *(Pending run)* | *(Pending run)* | One workflow run per OS; record each run's URL |
 | **1** | System info & GUI session (`sw_vers`, `csrutil`, `launchctl gui`) | `[PENDING]` | `[PENDING]` | Inspect launchd GUI session availability |
 | **2** | Download & install Host DMG (`Contents/Helpers/LiminalKeysHostCLI`) | `[PENDING]` | `[PENDING]` | Verify CLI helper existence |
 | **3** | Register Token Extension (`lsregister`, `pluginkit -a`, `pluginkit -e use`) | `[PENDING]` | `[PENDING]` | Verify PlugInKit election |
