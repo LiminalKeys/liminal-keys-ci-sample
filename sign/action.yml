@@ -4,7 +4,7 @@ description: >-
   export the signing certificate SHA-1 for codesign, and revoke the device in a post step.
 author: Liminal Keys
 branding:
-  icon: key
+  icon: lock
   color: blue
 
 inputs:

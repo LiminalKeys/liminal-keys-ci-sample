@@ -83,8 +83,9 @@ jobs:
           codesign --force --options runtime --timestamp -s "$SIGNING_SHA1" "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
-      - name: Notarize and staple (customer ASC key — disabled in public sample)
-        if: false
+      # Self-signed Liminal CI Test cannot be notarized; template only (never enabled in this repo).
+      - name: Notarize and staple (customer ASC key — template, skipped)
+        if: github.event_name == 'notarize-disabled-template'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
