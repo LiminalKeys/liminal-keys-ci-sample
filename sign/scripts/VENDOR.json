@@ -1,0 +1,9 @@
+{
+  "source": "LiminalKeys/liminal-keys scripts/ci (lk-15c)",
+  "hostRelease": "1.0.0-beta.4",
+  "files": {
+    "liminal-keys-ci-setup.sh": "4c5932f5ef9173b8d66908fb128c7e918588ff667963a6d63cb0137b22202481",
+    "liminal-keys-ci-teardown.sh": "464074adec665974f9ca5353627830a8bd674be7f781f1043c26596908df1e27"
+  },
+  "note": "SHA-256 digests are recorded after scripts are finalized; Action may also fetch DMG via GET /v1/public/agent/mac."
+}

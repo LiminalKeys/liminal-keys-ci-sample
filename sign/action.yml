@@ -1,0 +1,50 @@
+name: Liminal Keys Sign
+description: >-
+  Enroll an ephemeral Liminal Keys CI signing device on a macOS runner (GitHub OIDC or CI key),
+  export the signing certificate SHA-1 for codesign, and revoke the device in a post step.
+author: Liminal Keys
+branding:
+  icon: lock
+  color: blue
+
+inputs:
+  tenant-id:
+    description: Liminal Keys tenant ID (Console workspace).
+    required: true
+  identity-sha1:
+    description: >-
+      Optional 40-character SHA-1 thumbprint of the allowed signing identity (normalized to uppercase;
+      colons/spaces stripped). When omitted, the enrolled identity SHA-1 is used for sign-check.
+    required: false
+  ci-key:
+    description: >-
+      Optional lkci_ CI key for runners without GitHub OIDC. Pass only via secrets.* — never as a plain input.
+    required: false
+  api-base-url:
+    description: Liminal Keys API base URL.
+    required: false
+    default: https://api.liminalkeys.com
+  ttl-minutes:
+    description: CI device lifetime in minutes (5–120).
+    required: false
+    default: '60'
+  host-dmg-url:
+    description: Optional pinned URL for the Liminal Keys Host DMG (defaults to GET /v1/public/agent/mac).
+    required: false
+  host-dmg-sha256:
+    description: Optional SHA-256 of the Host DMG when host-dmg-url is pinned.
+    required: false
+
+outputs:
+  signing-sha1:
+    description: SHA-1 thumbprint of the enrolled signing certificate (use with codesign -s).
+  device-id:
+    description: Ephemeral CI device ID (revoked in post unless the job crashes).
+  expires-at:
+    description: ISO timestamp when the CI device expires server-side.
+
+runs:
+  using: node24
+  main: dist/main.js
+  post: dist/post.js
+  post-if: always()
