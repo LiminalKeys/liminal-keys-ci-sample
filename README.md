@@ -56,6 +56,8 @@ Each step runs with `continue-on-error: true` and tees logs to `$RUNNER_TEMP/spi
 
 ## Status
 
-Scaffold and CTK spike workflow ready for test execution.
+**lk-15a (CTK spike):** Completed 2026-10-21 on GitHub-hosted `macos-15` and `macos-14` — all steps 1–8 **PASS** (~30 s per job). Recorded in [`docs/spike-results.md`](docs/spike-results.md) (runs [39620918739](https://github.com/LiminalKeys/liminal-keys-ci-sample/actions/runs/39620918739), [39621520328](https://github.com/LiminalKeys/liminal-keys-ci-sample/actions/runs/39621520328)). **Verdict:** proceed with **Option A (CTK)** for lk-15d Action work.
+
+**lk-15d:** Spike results captured; Action (`sign/`), sample workflow, and legacy spike workflow cleanup remain in progress (issue [#4](https://github.com/LiminalKeys/liminal-keys-ci-sample/issues/4)).
 
 Product: https://www.liminalkeys.com
