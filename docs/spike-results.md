@@ -5,7 +5,7 @@ Recorded from workflow runs **39620918739** (macos-15) and **39621520328** (maco
 ## Overview
 
 - **Goal:** Prove or disprove whether the Liminal Keys CryptoTokenKit (CTK) virtual smartcard can sign code **non-interactively** on standard GitHub-hosted macOS runners (`macos-14` Sonoma and `macos-15` Sequoia).
-- **Workflow:** [`.github/workflows/ctk-spike.yml`](../.github/workflows/ctk-spike.yml) (lk-15a spike; superseded for production CI by the planned `sign/` Action in lk-15d).
+- **Workflow:** legacy `ctk-spike.yml` (lk-15a spike, removed after recording; production CI uses [`sign/`](../sign/) and [`sign-sample.yml`](../.github/workflows/sign-sample.yml)).
 - **Decision boundary (lk-15c):**
   - **PASS (both runners):** Proceed with CTK design for CI pipelines (headless Host + CTK token extension).
   - **FAIL (either runner):** Pivot to **Option B** (remote signing daemon / API-direct signer without local CTK emulation).

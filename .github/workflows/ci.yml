@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign-action:
+    name: sign Action (test + check-dist)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sign
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: sign/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Verify dist/ is committed
+        working-directory: .
+        run: git diff --exit-code sign/dist
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/actionlint@v1.7.7
+        with:
+          args: -color
+
+  secret-expression-guard:
+    name: workflow secret expression guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Disallow secret/input expansions in run scripts
+        run: |
+          set -euo pipefail
+          if rg -n '\$\{\{ *(inputs|secrets)\.[a-z_-]*(code|key|token)' .github/workflows sign --glob '*.yml'; then
+            echo "Found forbidden secret/input expression inside workflow YAML (use env: instead)." >&2
+            exit 1
+          fi
+          echo "OK"

@@ -1,0 +1,121 @@
+name: Sign sample (cloud CI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tenant-id:
+        description: Liminal Keys tenant ID (or set repo variable LIMINAL_KEYS_TENANT_ID)
+        required: false
+        type: string
+      identity-sha1:
+        description: Test identity SHA-1 (or set repo variable LIMINAL_KEYS_CERT_SHA1)
+        required: false
+        type: string
+      os:
+        description: macOS runner
+        type: choice
+        options: [macos-15, macos-14]
+        default: macos-15
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  sign-sample:
+    name: Sign sample (${{ inputs.os }})
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 30
+    env:
+      LIMINAL_KEYS_TENANT_ID: ${{ inputs.tenant-id || vars.LIMINAL_KEYS_TENANT_ID }}
+      LIMINAL_KEYS_CERT_SHA1: ${{ inputs.identity-sha1 || vars.LIMINAL_KEYS_CERT_SHA1 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate dispatch inputs
+        run: |
+          set -euo pipefail
+          if [[ -z "${LIMINAL_KEYS_TENANT_ID:-}" ]]; then
+            echo "tenant-id dispatch input or LIMINAL_KEYS_TENANT_ID repo variable is required." >&2
+            exit 1
+          fi
+          if [[ -z "${LIMINAL_KEYS_CERT_SHA1:-}" ]]; then
+            echo "identity-sha1 dispatch input or LIMINAL_KEYS_CERT_SHA1 repo variable is required." >&2
+            exit 1
+          fi
+
+      - name: Build tiny sample .app
+        id: build
+        run: |
+          set -euo pipefail
+          APP_DIR="${{ runner.temp }}/LiminalSample.app"
+          mkdir -p "$APP_DIR/Contents/MacOS"
+          cp sample/Info.plist "$APP_DIR/Contents/Info.plist"
+          swift build -c release --package-path sample
+          install -m 755 sample/.build/release/LiminalSample "$APP_DIR/Contents/MacOS/LiminalSample"
+          echo "app-path=$APP_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Liminal Keys enroll (Action)
+        id: lk
+        uses: ./sign
+        with:
+          tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
+          identity-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
+
+      - name: Codesign sample (.app)
+        env:
+          SIGNING_SHA1: ${{ steps.lk.outputs.signing-sha1 }}
+          APP_PATH: ${{ steps.build.outputs.app-path }}
+        run: |
+          set -euo pipefail
+          codesign --force --options runtime --timestamp=none -s "$SIGNING_SHA1" "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          codesign -dvv "$APP_PATH" 2>&1 | tee "${{ runner.temp }}/codesign-dvv.txt"
+          grep -F "Authority=Liminal CI Test" "${{ runner.temp }}/codesign-dvv.txt"
+
+      - name: Codesign with timestamp (informational)
+        continue-on-error: true
+        env:
+          SIGNING_SHA1: ${{ steps.lk.outputs.signing-sha1 }}
+          APP_PATH: ${{ steps.build.outputs.app-path }}
+        run: |
+          set -euo pipefail
+          codesign --force --options runtime --timestamp -s "$SIGNING_SHA1" "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Notarize and staple (customer ASC key — disabled in public sample)
+        if: false
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          # Self-signed Liminal CI Test identity cannot be notarized; customers use their own Developer ID + ASC secrets.
+          umask 077
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/MyApp.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/MyApp.zip" \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
+            --wait --timeout 30m
+          xcrun stapler staple "$APP_PATH"
+
+      - name: Step summary
+        if: always()
+        env:
+          DEVICE_ID: ${{ steps.lk.outputs.device-id }}
+          EXPIRES_AT: ${{ steps.lk.outputs.expires-at }}
+          SIGNING_SHA1: ${{ steps.lk.outputs.signing-sha1 }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## Liminal Keys sign-sample (${{ inputs.os }})"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Device ID | \`${DEVICE_ID:-n/a}\` |"
+            echo "| Signing SHA-1 | \`${SIGNING_SHA1:-n/a}\` |"
+            echo "| Expires at | \`${EXPIRES_AT:-n/a}\` |"
+            echo "| Run | ${RUN_URL} |"
+            echo ""
+            echo "Post-step revoke is reported by the Action post hook (device revoked (self)) when unenroll succeeds."
+          } >> "$GITHUB_STEP_SUMMARY"
