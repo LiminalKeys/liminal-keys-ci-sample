@@ -1,0 +1,53 @@
+# Customer template: validate Console trust + OIDC + ci sign-check before codesigning your app.
+# Copy to your repo, set variables (see README Quickstart), run workflow_dispatch on main (or a branch allowed by your trust rule).
+
+name: Liminal Keys dry run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  verify-signing:
+    name: Enroll + sign-check (no codesign)
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
+      LIMINAL_KEYS_CERT_SHA1: ${{ vars.LIMINAL_KEYS_CERT_SHA1 }}
+    steps:
+      - name: Validate variables
+        run: |
+          set -euo pipefail
+          if [[ -z "${LIMINAL_KEYS_TENANT_ID:-}" ]]; then
+            echo "Set repository or environment variable LIMINAL_KEYS_TENANT_ID." >&2
+            exit 1
+          fi
+
+      - name: Liminal Keys enroll and sign-check
+        id: lk
+        uses: LiminalKeys/liminal-keys-ci-sample/sign@v1
+        with:
+          tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
+          identity-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
+
+      - name: Summary
+        env:
+          DEVICE_ID: ${{ steps.lk.outputs.device-id }}
+          SIGNING_SHA1: ${{ steps.lk.outputs.signing-sha1 }}
+          EXPIRES_AT: ${{ steps.lk.outputs.expires-at }}
+        run: |
+          {
+            echo "## Liminal Keys dry run"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Device ID | \`${DEVICE_ID}\` |"
+            echo "| Signing SHA-1 | \`${SIGNING_SHA1}\` |"
+            echo "| Expires at | \`${EXPIRES_AT}\` |"
+            echo ""
+            echo "Post-step revoke runs automatically. Confirm the run in Console audit, then add codesign steps."
+          } >> "$GITHUB_STEP_SUMMARY"

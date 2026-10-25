@@ -1,8 +1,10 @@
 # Liminal Keys Sign (GitHub Action)
 
-Ephemeral cloud CI signing for **macOS** GitHub Actions runners: install the Liminal Keys Host, enroll a short-lived CI device with **GitHub OIDC** (default) or an optional **`lkci_` CI key**, run `ci sign-check`, export the certificate **SHA-1** for `codesign`, then **revoke** the device in a post step.
+Ephemeral cloud CI signing for **macOS** GitHub Actions runners: install or reuse the Liminal Keys Host, enroll a short-lived CI device with **GitHub OIDC** (default) or an optional **`lkci_` CI key**, run `ci sign-check`, export the certificate **SHA-1** for `codesign`, then **revoke** the device in a post step.
 
-Use as a path action in this repo (`./sign`) or after release tagging:
+**Host CLI:** **1.0.0-beta.4+** (see `scripts/VENDOR.json`). The Action maps Action input **`ttl-minutes`** to Host CLI **`--ttl`** (e.g. `60` → `--ttl 60m`). Do not pass `--ttl-minutes` to the CLI.
+
+Customer quickstart (Console trust rule, variables, dry run, troubleshooting): [repository README](../README.md).
 
 ```yaml
 - uses: LiminalKeys/liminal-keys-ci-sample/sign@v1
@@ -21,27 +23,29 @@ permissions:
 
 Without `id-token: write`, OIDC enrollment fails unless you pass `ci-key` from `secrets.*` (lower strength; for platforms without OIDC).
 
+OIDC audience is `{api-base-url}/t/{tenant-id}` (default API base `https://api.liminalkeys.com`).
+
 ## Inputs
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
-| `tenant-id` | yes | — | Liminal Keys tenant ID |
-| `identity-sha1` | no | — | Allowed identity SHA-1 (40 hex, colons/spaces stripped, uppercased) |
+| `tenant-id` | yes | — | Liminal Keys tenant ID (Console → **Account & workspace** or **CI & automation**) |
+| `identity-sha1` | no | — | Allowed identity SHA-1 (40 hex, colons/spaces stripped, uppercased). When omitted, enroll JSON **`identities[].sha1`** supplies the thumbprint for sign-check. |
 | `ci-key` | no | — | `lkci_…` key from `secrets.*` only |
 | `api-base-url` | no | `https://api.liminalkeys.com` | API base URL |
-| `ttl-minutes` | no | `60` | CI device TTL (5–120) |
+| `ttl-minutes` | no | `60` | CI device lifetime in minutes (5–120); passed to CLI as `--ttl {N}m` |
 | `host-dmg-url` | no | latest public agent | Pin Host DMG URL |
 | `host-dmg-sha256` | no | from API | Pin Host DMG SHA-256 |
 | `install-host` | no | `auto` | Host install policy (see **Self-hosted runners** below) |
 
 ## Self-hosted runners
 
-GitHub sets `RUNNER_ENVIRONMENT=self-hosted` on your own macOS machines. The default bootstrap script for **GitHub-hosted** runners reinstalls the Host DMG (including `sudo rm -rf` under `/Applications`) and applies system-wide smartcard settings with `sudo`. That is appropriate for ephemeral runners but **must not** run on a developer Mac that already has Liminal Keys enrolled for daily use.
+GitHub sets `RUNNER_ENVIRONMENT=self-hosted` on your own macOS machines. The bootstrap script for **GitHub-hosted** runners reinstalls the Host DMG (including `sudo rm -rf` under `/Applications`) and applies system-wide smartcard settings with `sudo`. That is appropriate for ephemeral runners but **must not** run on a developer Mac that already has Liminal Keys enrolled for daily use.
 
 With the default `install-host: auto` on a self-hosted runner **when the Host app is already installed**:
 
 - **No** DMG download, **no** `sudo rm -rf`, **no** `sudo security smartcards`, **no** `/Library/Preferences` changes.
-- The Action launches the existing Host with `--ci-agent` (user session, no sudo) and runs `LiminalKeysHostCLI ci enroll` / `ci sign-check` against the installed helper.
+- The Action launches the existing Host with `--ci-agent` (user session, no sudo) and runs `LiminalKeysHostCLI ci enroll` / `ci sign-check` against the installed helper at `/Applications/Liminal Keys Virtual Smartcard.app/Contents/Helpers/LiminalKeysHostCLI` (paths with spaces are supported).
 - **`ci enroll` / `ci unenroll` use a separate CI device** (`ci-agent-state.json` and Keychain tag `com.liminal.keys.device-auth.ci`), not your interactive enrollment (`agent-state.json` / `com.liminal.keys.device-auth`). Post-step **`ci unenroll` revokes only the ephemeral CI device**; it does not call interactive `unenroll`.
 - Teardown **does not** `pkill` the Host on self-hosted runners (your GUI Host keeps running).
 
@@ -65,13 +69,19 @@ If `ci enroll` or `ci sign-check` fails because the token extension or smartcard
 
 The main step also exports job env vars `LIMINAL_KEYS_SIGNING_SHA1` and `LIMINAL_KEYS_DEVICE_ID`.
 
+Enroll stdout is parsed as JSON (`--json`). Expected shape: **`deviceId`** plus **`identities[]`** with **`sha1`** (legacy top-level `signingSha1` is also accepted).
+
 ## Security model
 
-- **OIDC (default):** The Action requests an ID token with audience `https://api.liminalkeys.com/t/{tenant-id}` and passes it to `LiminalKeysHostCLI ci enroll` via environment variables only. No enrollment codes in workflows.
+- **OIDC (default):** The Action requests an ID token with audience `https://api.liminalkeys.com/t/{tenant-id}` and passes it to `LiminalKeysHostCLI ci enroll` via environment variables only. No enrollment codes in workflows. Console **GitHub trust rules** must allow the repository and **ref/branch** (and environment, if used); otherwise enroll returns **403** (`The identity token was refused.`).
 - **CI key (optional):** `ci-key` must come from `secrets.*`. The Action calls `core.setSecret` before any subprocess runs.
-- **Redaction:** Tokens, CI keys, and bearer material are never logged. Workflow `run:` steps must not embed `${{ secrets.* }}` or `${{ inputs.* }}` for sensitive values—use `env:` and shell variables.
+- **Redaction:** Tokens, CI keys, and bearer material are never logged. Workflow `run:` steps must not embed `${{ secrets.* }}` or sensitive `${{ inputs.* }}` — use `env:` and shell variables.
 - **Lifetime:** Server TTL (default 60 minutes, max 120) bounds exposure if a runner crashes. The post step calls `ci unenroll` and teardown; post failures are warnings only.
-- **Keys:** Private keys stay non-exportable and software-protected in Azure Key Vault; they never leave Liminal Keys custody.
+- **Keys:** Private keys stay non-exportable in **Key Vault**; they never leave Liminal Keys custody.
+
+## GitHub Environments
+
+To use **environment-scoped** `vars.LIMINAL_KEYS_TENANT_ID`, set `environment: <name>` on the job. Variables resolve from that environment automatically. **`github.environment` is not a valid expression context.**
 
 ## Development
 
@@ -80,7 +90,10 @@ cd sign
 npm ci
 npm test
 npm run build
+npm run verify:dist
 git diff --exit-code dist/
 ```
+
+`npm run verify:dist` loads `dist/main/index.js` and `dist/post/index.js` with Node to catch missing bundled dependencies (e.g. stray `sourcemap-register` requires).
 
 Vendored bootstrap scripts live in `sign/scripts/` (see `VENDOR.json` for SHA-256 pins). They mirror `scripts/ci/*` from the Liminal Keys Host release and launch the Host with `--ci-agent`.
