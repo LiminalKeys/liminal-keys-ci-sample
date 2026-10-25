@@ -13,6 +13,7 @@ const { isSelfHostedRunner } = require('./lib/runner');
 const { safeErrorMessage, containsSecret } = require('./lib/redaction');
 const { HOST_CLI, resolveActionRoot, setupScriptPath } = require('./lib/paths');
 const { execCapture, parseLastJsonObject, pickEnrollFields } = require('./lib/exec-json');
+const { buildCiEnrollArgs, buildCiSignCheckArgs } = require('./lib/host-cli-args');
 const { validateOidcOrCiKey } = require('./lib/auth');
 
 async function run() {
@@ -136,15 +137,13 @@ async function run() {
     ...(ciKey ? { LIMINAL_KEYS_CI_KEY: ciKey } : { LIMINAL_KEYS_GITHUB_OIDC_TOKEN: githubOidcToken }),
   };
 
-  const enrollArgs = [
-    'ci',
-    'enroll',
-    '--tenant-id',
+  const enrollArgs = buildCiEnrollArgs({
     tenantId,
-    '--ttl-minutes',
-    String(ttlMinutes),
-    '--json',
-  ];
+    ttlMinutes,
+    apiBaseUrl,
+    identitySha1,
+    useCiKey: Boolean(ciKey),
+  });
 
   core.info('Enrolling ephemeral CI signing device...');
   const enrollResult = await execCapture(HOST_CLI, enrollArgs, {
@@ -180,12 +179,11 @@ async function run() {
     );
   }
 
-  const signCheckArgs = ['ci', 'sign-check', '--json'];
-  if (identitySha1) {
-    signCheckArgs.push('--identity', identitySha1);
-  } else {
-    signCheckArgs.push('--identity', fields.signingSha1);
-  }
+  const signCheckIdentity = identitySha1 ?? fields.signingSha1;
+  const signCheckArgs = buildCiSignCheckArgs({
+    identitySha1: signCheckIdentity,
+    apiBaseUrl,
+  });
 
   core.info('Running ci sign-check...');
   const signCheckResult = await execCapture(HOST_CLI, signCheckArgs, {

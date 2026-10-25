@@ -5,6 +5,7 @@ const path = require('node:path');
 const core = require('@actions/core');
 const { HOST_CLI, resolveActionRoot, teardownScriptPath } = require('./lib/paths');
 const { execCapture, parseLastJsonObject } = require('./lib/exec-json');
+const { buildCiUnenrollArgs } = require('./lib/host-cli-args');
 const { safeErrorMessage } = require('./lib/redaction');
 
 async function runPost() {
@@ -20,7 +21,7 @@ async function runPost() {
 
     let unenrollMessage = 'not attempted';
     if (fs.existsSync(HOST_CLI)) {
-      const unenrollResult = await execCapture(HOST_CLI, ['ci', 'unenroll', '--json'], {
+      const unenrollResult = await execCapture(HOST_CLI, buildCiUnenrollArgs({ apiBaseUrl }), {
         env: {
           ...process.env,
           LIMINAL_KEYS_API_BASE_URL: apiBaseUrl,
