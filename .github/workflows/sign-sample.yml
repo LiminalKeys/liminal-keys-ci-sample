@@ -57,7 +57,7 @@ jobs:
 
       - name: Liminal Keys enroll (Action)
         id: lk
-        uses: ./sign
+        uses: LiminalKeys/liminal-keys-ci-sample/sign@v1
         with:
           tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
           identity-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
