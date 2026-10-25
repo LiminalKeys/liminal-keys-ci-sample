@@ -7,9 +7,10 @@
   "scripts": {
     "test": "vitest run",
     "build": "npm run build:main && npm run build:post",
-    "build:main": "ncc build src/main.js -o dist/main-build --minify --source-map --license licenses.txt && mv dist/main-build/index.js dist/main.js && rm -rf dist/main-build",
-    "build:post": "ncc build src/post.js -o dist/post-build --minify --source-map --license licenses.txt && mv dist/post-build/index.js dist/post.js && rm -rf dist/post-build",
-    "check-dist": "git diff --exit-code dist/"
+    "build:main": "ncc build src/main.js -o dist/main --minify --license licenses.txt",
+    "build:post": "ncc build src/post.js -o dist/post --minify --license licenses.txt",
+    "check-dist": "git diff --exit-code dist/",
+    "verify:dist": "node scripts/verify-dist-load.js"
   },
   "dependencies": {
     "@actions/core": "^1.11.1",
