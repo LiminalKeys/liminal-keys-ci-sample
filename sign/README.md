@@ -32,6 +32,28 @@ Without `id-token: write`, OIDC enrollment fails unless you pass `ci-key` from `
 | `ttl-minutes` | no | `60` | CI device TTL (5–120) |
 | `host-dmg-url` | no | latest public agent | Pin Host DMG URL |
 | `host-dmg-sha256` | no | from API | Pin Host DMG SHA-256 |
+| `install-host` | no | `auto` | Host install policy (see **Self-hosted runners** below) |
+
+## Self-hosted runners
+
+GitHub sets `RUNNER_ENVIRONMENT=self-hosted` on your own macOS machines. The default bootstrap script for **GitHub-hosted** runners reinstalls the Host DMG (including `sudo rm -rf` under `/Applications`) and applies system-wide smartcard settings with `sudo`. That is appropriate for ephemeral runners but **must not** run on a developer Mac that already has Liminal Keys enrolled for daily use.
+
+With the default `install-host: auto` on a self-hosted runner **when the Host app is already installed**:
+
+- **No** DMG download, **no** `sudo rm -rf`, **no** `sudo security smartcards`, **no** `/Library/Preferences` changes.
+- The Action launches the existing Host with `--ci-agent` (user session, no sudo) and runs `LiminalKeysHostCLI ci enroll` / `ci sign-check` against the installed helper.
+- **`ci enroll` / `ci unenroll` use a separate CI device** (`ci-agent-state.json` and Keychain tag `com.liminal.keys.device-auth.ci`), not your interactive enrollment (`agent-state.json` / `com.liminal.keys.device-auth`). Post-step **`ci unenroll` revokes only the ephemeral CI device**; it does not call interactive `unenroll`.
+- Teardown **does not** `pkill` the Host on self-hosted runners (your GUI Host keeps running).
+
+| `install-host` | Self-hosted, app present | Self-hosted, app missing | GitHub-hosted |
+| --- | --- | --- | --- |
+| `auto` (default) | Reuse installed Host | Install DMG (`sudo -n` only; no rm if absent) | Full install + sudo smartcard setup |
+| `always` | Reuse (never remove existing app) | Install DMG | Full install + sudo smartcard setup |
+| `never` | Reuse; fail if CLI missing | Fail fast | Skip install; fail if CLI missing |
+
+All remaining `sudo` calls in the install path use **`sudo -n`** so a password prompt fails immediately instead of hanging.
+
+If `ci enroll` or `ci sign-check` fails because the token extension or smartcard subsystem was never enabled on that Mac, fix it once interactively (System Settings → Crypto Token, or enable `com.liminal.keys.host.token` locally). The Action will **not** attempt privileged system changes on self-hosted runners when reusing an existing install.
 
 ## Outputs
 

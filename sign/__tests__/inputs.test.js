@@ -3,6 +3,7 @@ import {
   normalizeIdentitySha1,
   parseTtlMinutes,
   normalizeApiBaseUrl,
+  parseInstallHost,
 } from '../src/lib/inputs.js';
 
 describe('normalizeIdentitySha1', () => {
@@ -50,5 +51,21 @@ describe('normalizeApiBaseUrl', () => {
     expect(normalizeApiBaseUrl('https://api.liminalkeys.com/')).toBe(
       'https://api.liminalkeys.com',
     );
+  });
+});
+
+describe('parseInstallHost', () => {
+  it('defaults to auto', () => {
+    expect(parseInstallHost(undefined)).toBe('auto');
+    expect(parseInstallHost('')).toBe('auto');
+  });
+
+  it('accepts always and never', () => {
+    expect(parseInstallHost('ALWAYS')).toBe('always');
+    expect(parseInstallHost(' never ')).toBe('never');
+  });
+
+  it('rejects unknown values', () => {
+    expect(() => parseInstallHost('sometimes')).toThrow(/auto, always, never/);
   });
 });
