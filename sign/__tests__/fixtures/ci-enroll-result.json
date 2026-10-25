@@ -1,0 +1,13 @@
+{
+  "deviceId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "error": null,
+  "expiresAt": "2026-10-25T14:08:00Z",
+  "identities": [
+    {
+      "displayName": "CI Signing",
+      "sha1": "ab:cd:ef:01:23:45:67:89:0a:bc:de:f0:12:34:56:78:90:ab:cd:ef"
+    }
+  ],
+  "ok": true,
+  "tenantId": "11111111-1111-1111-1111-111111111111"
+}

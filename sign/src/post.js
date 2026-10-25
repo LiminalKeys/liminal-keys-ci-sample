@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const core = require('@actions/core');
 const { HOST_CLI, resolveActionRoot, teardownScriptPath } = require('./lib/paths');
-const { execCapture, parseLastJsonObject } = require('./lib/exec-json');
+const { execCapture, parseLastJsonObject, summarizeUnenrollPayload } = require('./lib/exec-json');
 const { buildCiUnenrollArgs } = require('./lib/host-cli-args');
 const { safeErrorMessage } = require('./lib/redaction');
 
@@ -19,8 +19,9 @@ async function runPost() {
     const actionRoot = core.getState('actionRoot') || resolveActionRoot(__dirname);
     const deviceId = core.getState('deviceId');
 
+    const ciEnrollCompleted = core.getState('ciEnrollCompleted') === '1';
     let unenrollMessage = 'not attempted';
-    if (fs.existsSync(HOST_CLI)) {
+    if (fs.existsSync(HOST_CLI) && (ciEnrollCompleted || core.getState('deviceId'))) {
       const unenrollResult = await execCapture(HOST_CLI, buildCiUnenrollArgs({ apiBaseUrl }), {
         env: {
           ...process.env,
@@ -31,14 +32,11 @@ async function runPost() {
       if (unenrollResult.exitCode === 0) {
         try {
           const payload = parseLastJsonObject(unenrollResult.stdout);
-          const revoked =
-            payload.revoked ??
-            payload.selfRevoked ??
-            payload.status ??
-            payload.message ??
-            'ok';
-          unenrollMessage = `device revoked (${String(revoked)})`;
-        } catch {
+          unenrollMessage = `device revoked (${summarizeUnenrollPayload(payload)})`;
+        } catch (err) {
+          if (err && typeof err === 'object' && Array.isArray(err.topLevelKeys) && err.topLevelKeys.length > 0) {
+            core.warning(`CLI unenroll JSON top-level keys: ${err.topLevelKeys.join(', ')}`);
+          }
           unenrollMessage = 'device revoked (unenroll exit 0)';
         }
       } else {
@@ -48,9 +46,11 @@ async function runPost() {
           core.warning(unenrollResult.stderr.slice(0, 2000));
         }
       }
-    } else {
+    } else if (!fs.existsSync(HOST_CLI)) {
       unenrollMessage = 'Host CLI not installed; skipped unenroll';
       core.warning(unenrollMessage);
+    } else {
+      unenrollMessage = 'skipped unenroll (no CI enroll recorded on this job)';
     }
 
     const teardownScript = teardownScriptPath(actionRoot);

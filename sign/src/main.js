@@ -12,9 +12,26 @@ const {
 const { isSelfHostedRunner } = require('./lib/runner');
 const { safeErrorMessage, containsSecret } = require('./lib/redaction');
 const { HOST_CLI, resolveActionRoot, setupScriptPath } = require('./lib/paths');
-const { execCapture, parseLastJsonObject, pickEnrollFields } = require('./lib/exec-json');
+const {
+  execCapture,
+  parseLastJsonObject,
+  pickEnrollFields,
+  tryPickDeviceId,
+  parseSignCheckReport,
+} = require('./lib/exec-json');
 const { buildCiEnrollArgs, buildCiSignCheckArgs } = require('./lib/host-cli-args');
 const { validateOidcOrCiKey } = require('./lib/auth');
+
+/**
+ * @param {unknown} err
+ * @param {string[]} secrets
+ */
+function failCliJsonParse(err, secrets) {
+  if (err && typeof err === 'object' && Array.isArray(err.topLevelKeys) && err.topLevelKeys.length > 0) {
+    core.error(`CLI JSON top-level keys: ${err.topLevelKeys.join(', ')}`);
+  }
+  core.setFailed(safeErrorMessage(err instanceof Error ? err.message : String(err), secrets));
+}
 
 async function run() {
   if (process.platform !== 'darwin') {
@@ -156,20 +173,25 @@ async function run() {
     return;
   }
 
+  core.saveState('ciEnrollCompleted', '1');
+
   let enrollPayload;
   try {
     enrollPayload = parseLastJsonObject(enrollResult.stdout);
   } catch (err) {
-    const msg = safeErrorMessage(err instanceof Error ? err.message : String(err), secrets);
-    core.setFailed(msg);
+    failCliJsonParse(err, secrets);
     return;
   }
 
   let fields;
   try {
-    fields = pickEnrollFields(enrollPayload);
+    fields = pickEnrollFields(enrollPayload, { preferredIdentitySha1: identitySha1 });
   } catch (err) {
-    core.setFailed(safeErrorMessage(err instanceof Error ? err.message : String(err), secrets));
+    const partialDeviceId = tryPickDeviceId(enrollPayload);
+    if (partialDeviceId) {
+      core.saveState('deviceId', partialDeviceId);
+    }
+    failCliJsonParse(err, secrets);
     return;
   }
 
@@ -196,6 +218,18 @@ async function run() {
   if (signCheckResult.exitCode !== 0) {
     core.error(signCheckResult.stderr || signCheckResult.stdout);
     core.setFailed('ci sign-check failed.');
+    return;
+  }
+
+  try {
+    const signCheckPayload = parseLastJsonObject(signCheckResult.stdout);
+    const report = parseSignCheckReport(signCheckPayload);
+    if (!report.ok) {
+      core.setFailed('ci sign-check JSON reported ok=false.');
+      return;
+    }
+  } catch (err) {
+    failCliJsonParse(err, secrets);
     return;
   }
 
