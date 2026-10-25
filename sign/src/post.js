@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const core = require('@actions/core');
-const { HOST_CLI, teardownScriptPath } = require('./lib/paths');
+const { HOST_CLI, resolveActionRoot, teardownScriptPath } = require('./lib/paths');
 const { execCapture, parseLastJsonObject } = require('./lib/exec-json');
 const { safeErrorMessage } = require('./lib/redaction');
 
@@ -15,7 +15,7 @@ async function runPost() {
     }
 
     const apiBaseUrl = core.getState('apiBaseUrl') || 'https://api.liminalkeys.com';
-    const actionRoot = core.getState('actionRoot') || path.join(__dirname, '..');
+    const actionRoot = core.getState('actionRoot') || resolveActionRoot(__dirname);
     const deviceId = core.getState('deviceId');
 
     let unenrollMessage = 'not attempted';

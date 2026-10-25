@@ -26,6 +26,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm run verify:dist
       - name: Verify dist/ is committed
         working-directory: .
         run: git diff --exit-code sign/dist
