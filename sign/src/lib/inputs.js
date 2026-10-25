@@ -40,9 +40,25 @@ function normalizeApiBaseUrl(raw) {
   return base.replace(/\/+$/, '');
 }
 
+const INSTALL_HOST_VALUES = new Set(['auto', 'always', 'never']);
+
+/**
+ * @param {string | undefined} raw
+ * @returns {'auto' | 'always' | 'never'}
+ */
+function parseInstallHost(raw) {
+  const value = (raw === undefined || raw === '' ? 'auto' : String(raw).trim().toLowerCase());
+  if (!INSTALL_HOST_VALUES.has(value)) {
+    throw new Error('install-host must be one of: auto, always, never.');
+  }
+  return /** @type {'auto' | 'always' | 'never'} */ (value);
+}
+
 module.exports = {
   normalizeIdentitySha1,
   parseTtlMinutes,
   normalizeApiBaseUrl,
+  parseInstallHost,
+  INSTALL_HOST_VALUES,
   HEX40,
 };

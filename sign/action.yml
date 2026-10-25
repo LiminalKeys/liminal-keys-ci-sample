@@ -34,6 +34,14 @@ inputs:
   host-dmg-sha256:
     description: Optional SHA-256 of the Host DMG when host-dmg-url is pinned.
     required: false
+  install-host:
+    description: >-
+      When to download/install the Host DMG. `auto` (default) installs on GitHub-hosted runners
+      and when the app is missing; on self-hosted runners with an existing install it reuses the
+      app and skips sudo/system changes. `always` forces install when safe (never removes an
+      existing app on self-hosted). `never` requires a preinstalled Host.
+    required: false
+    default: auto
 
 outputs:
   signing-sha1:

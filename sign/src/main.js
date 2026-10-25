@@ -7,7 +7,9 @@ const {
   normalizeIdentitySha1,
   parseTtlMinutes,
   normalizeApiBaseUrl,
+  parseInstallHost,
 } = require('./lib/inputs');
+const { isSelfHostedRunner } = require('./lib/runner');
 const { safeErrorMessage, containsSecret } = require('./lib/redaction');
 const { HOST_CLI, resolveActionRoot, setupScriptPath } = require('./lib/paths');
 const { execCapture, parseLastJsonObject, pickEnrollFields } = require('./lib/exec-json');
@@ -51,6 +53,23 @@ async function run() {
   const hostDmgUrl = core.getInput('host-dmg-url').trim();
   const hostDmgSha256 = core.getInput('host-dmg-sha256').trim();
 
+  let installHost;
+  try {
+    installHost = parseInstallHost(core.getInput('install-host'));
+  } catch (err) {
+    core.setFailed(safeErrorMessage(err instanceof Error ? err.message : String(err), []));
+    return;
+  }
+
+  const selfHosted = isSelfHostedRunner();
+  const hostCliReady = fs.existsSync(HOST_CLI);
+  if (installHost === 'never' && !hostCliReady) {
+    core.setFailed(
+      `install-host is \`never\` but Liminal Keys Host CLI is not installed at ${HOST_CLI}. Install the Host app on this runner or use install-host: auto.`,
+    );
+    return;
+  }
+
   const secrets = [];
   if (ciKey) {
     secrets.push(ciKey);
@@ -83,15 +102,23 @@ async function run() {
   core.saveState('actionRoot', actionRoot);
   core.saveState('apiBaseUrl', apiBaseUrl);
   core.saveState('tenantId', tenantId);
+  core.saveState('selfHostedRunner', selfHosted ? '1' : '0');
 
   const setupEnv = {
     ...process.env,
     LIMINAL_KEYS_API_BASE_URL: apiBaseUrl,
+    LIMINAL_KEYS_INSTALL_HOST: installHost,
     ...(hostDmgUrl ? { LIMINAL_KEYS_HOST_DMG_URL: hostDmgUrl } : {}),
     ...(hostDmgSha256 ? { LIMINAL_KEYS_HOST_DMG_SHA256: hostDmgSha256 } : {}),
   };
 
-  core.info('Running Host setup (DMG install, token extension, CI agent)...');
+  if (selfHosted && hostCliReady) {
+    core.info(
+      'Self-hosted runner with existing Host: skipping destructive install; CI enroll uses a separate ephemeral device identity.',
+    );
+  } else {
+    core.info('Running Host setup (DMG install, token extension, CI agent)...');
+  }
   const setupResult = await execCapture('bash', [setupScript], {
     env: setupEnv,
     secrets,
