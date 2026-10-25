@@ -9,7 +9,7 @@ const {
   normalizeApiBaseUrl,
 } = require('./lib/inputs');
 const { safeErrorMessage, containsSecret } = require('./lib/redaction');
-const { HOST_CLI, setupScriptPath } = require('./lib/paths');
+const { HOST_CLI, resolveActionRoot, setupScriptPath } = require('./lib/paths');
 const { execCapture, parseLastJsonObject, pickEnrollFields } = require('./lib/exec-json');
 const { validateOidcOrCiKey } = require('./lib/auth');
 
@@ -73,7 +73,7 @@ async function run() {
     secrets.push(githubOidcToken);
   }
 
-  const actionRoot = path.join(__dirname, '..');
+  const actionRoot = resolveActionRoot(__dirname);
   const setupScript = setupScriptPath(actionRoot);
   if (!fs.existsSync(setupScript)) {
     core.setFailed(`Setup script missing at ${setupScript}`);
