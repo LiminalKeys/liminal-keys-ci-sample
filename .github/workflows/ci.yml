@@ -48,8 +48,16 @@ jobs:
       - name: Disallow secret/input expansions in run scripts
         run: |
           set -euo pipefail
-          if rg -n '\$\{\{ *(inputs|secrets)\.[a-z_-]*(code|key|token)' .github/workflows sign --glob '*.yml'; then
+          if rg -n '\$\{\{ *(inputs|secrets)\.[a-z_-]*(code|key|token)' .github/workflows sign export --glob '*.yml'; then
             echo "Found forbidden secret/input expression inside workflow YAML (use env: instead)." >&2
             exit 1
           fi
           echo "OK"
+
+  export-action:
+    name: export Action (shell syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check export scripts
+        run: bash -n export/scripts/verify-ipa-signatures.sh

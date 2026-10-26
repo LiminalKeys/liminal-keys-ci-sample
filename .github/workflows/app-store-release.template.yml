@@ -1,0 +1,69 @@
+# Template: iOS App Store / TestFlight release with Liminal Keys (self-hosted macOS).
+# Copy into your app repo, set repository variables, and run on a branch allowed by Console CI trust.
+#
+# Prerequisites: Liminal Keys for Mac on the runner, GitHub OIDC trust + sign policy, ExportOptions.plist.
+name: App Store release (Liminal Keys template)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  release:
+    runs-on: [self-hosted, macOS]
+    environment: app-store-release
+    env:
+      LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
+      LIMINAL_KEYS_CERT_SHA1: ${{ vars.LIMINAL_KEYS_CERT_SHA1 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liminal Keys enroll (ephemeral CI device)
+        id: lk
+        uses: LiminalKeys/liminal-keys-ci-sample/sign@v1
+        with:
+          tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
+          identity-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
+
+      - name: Archive (Release, device)
+        run: |
+          set -euo pipefail
+          ARCHIVE="${RUNNER_TEMP}/MyApp.xcarchive"
+          rm -rf "$ARCHIVE"
+          xcodebuild \
+            -workspace MyApp.xcworkspace \
+            -scheme MyApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE" \
+            archive
+          echo "ARCHIVE_PATH=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Export IPA, verify leaf SHA-1, upload TestFlight
+        uses: LiminalKeys/liminal-keys-ci-sample/export@v1
+        with:
+          archive-path: ${{ env.ARCHIVE_PATH }}
+          export-options: ExportOptions.plist
+          export-path: ${{ runner.temp }}/export
+          leaf-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
+          min-signed-bundles: "1"
+          upload-app-store: "true"
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+
+      - name: Release summary
+        if: always()
+        env:
+          DEVICE_ID: ${{ steps.lk.outputs.device-id }}
+          SIGNING_SHA1: ${{ steps.lk.outputs.signing-sha1 }}
+        run: |
+          {
+            echo "## App Store release (Liminal Keys)"
+            echo ""
+            echo "Confirm sign events in [Console Sign audit](https://console.liminalkeys.com) for CI device \`${DEVICE_ID:-n/a}\` (SHA-1 \`${SIGNING_SHA1:-n/a}\`)."
+          } >> "$GITHUB_STEP_SUMMARY"

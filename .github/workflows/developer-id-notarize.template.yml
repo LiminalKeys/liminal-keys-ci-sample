@@ -1,0 +1,51 @@
+# Template: Developer ID Mac app — archive, Liminal Keys codesign path, optional notarization.
+# Notarization uses YOUR App Store Connect API key; Liminal Keys never stores it.
+name: Developer ID + notarize (Liminal Keys template)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  release:
+    runs-on: [self-hosted, macOS]
+    env:
+      LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
+      LIMINAL_KEYS_CERT_SHA1: ${{ vars.LIMINAL_KEYS_CERT_SHA1 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liminal Keys enroll
+        id: lk
+        uses: LiminalKeys/liminal-keys-ci-sample/sign@v1
+        with:
+          tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
+          identity-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
+
+      - name: Build and codesign .app
+        env:
+          SIGNING_SHA1: ${{ steps.lk.outputs.signing-sha1 }}
+        run: |
+          set -euo pipefail
+          # Build your .app, then:
+          # codesign --force --options runtime --timestamp -s "$SIGNING_SHA1" path/to/MyApp.app
+
+      - name: Notarize (customer ASC key)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          ditto -c -k --keepParent path/to/MyApp.app "$RUNNER_TEMP/MyApp.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/MyApp.zip" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait --timeout 30m
+          xcrun stapler staple path/to/MyApp.app

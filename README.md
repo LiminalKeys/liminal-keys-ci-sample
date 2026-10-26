@@ -1,8 +1,12 @@
 # Liminal Keys — GitHub Actions signing (macOS / iOS)
 
-Sign macOS and iOS builds in GitHub Actions with **ephemeral CI devices**: GitHub OIDC (or an optional `lkci_` key), the [`sign`](sign/) Action (`LiminalKeys/liminal-keys-ci-sample/sign@v1`), and your signing identity stored in **Key Vault**. Private keys never leave Liminal Keys custody.
+Companies keep control of their most valuable assets — **certificates and signing keys** — in **Key Vault**, while agencies and contractors build and ship under the company’s policy. Liminal Keys connects CI to that custody without copying private keys onto runners.
 
-This repository ships the Action, a **dry-run workflow**, and a full **sign-sample** demo. Use it as the only reference to go from zero to a signed build.
+Sign macOS and iOS builds in GitHub Actions with **ephemeral CI devices**: GitHub OIDC (or an optional `lkci_` key), the [`sign`](sign/) Action (`LiminalKeys/liminal-keys-ci-sample/sign@v1`), optional [`export`](export/) for App Store IPA export + verification (`export@v1`), and your signing identity stored in **Key Vault**. Private keys never leave Liminal Keys custody.
+
+**Reference:** [WatchTeams](https://www.liminalkeys.com/customers/watchteams/) **2.1.0** shipped to the App Store with signatures from end to end through this CI path (ephemeral CI device, no smart card on the runner).
+
+This repository ships the Actions, **dry-run** and **sign-sample** workflows, and copy-paste **templates** for App Store / TestFlight and Developer ID + notarization. Use it as the only reference to go from zero to a signed build — no access to the private `liminal-keys` repo.
 
 ---
 
@@ -105,9 +109,27 @@ After the dry run passes, add build and `codesign` steps using the Action output
 
 Use `steps.lk.outputs.signing-sha1` or job env `LIMINAL_KEYS_SIGNING_SHA1`. See [`.github/workflows/sign-sample.yml`](.github/workflows/sign-sample.yml) for a full Swift sample.
 
-### 6. Verify in Console
+### 6. App Store / TestFlight (iOS)
 
-Open **Audit** (or CI device history) and confirm the workflow run matches the ephemeral device created and revoked by the Action.
+After the dry run succeeds on a **self-hosted macOS** runner with **Liminal Keys for Mac** installed:
+
+1. Add **`ExportOptions.plist`** for `method: app-store` or App Store Connect export.
+2. Copy [`.github/workflows/app-store-release.template.yml`](.github/workflows/app-store-release.template.yml) — archive → [`export@v1`](export/) (bundled **LiminalKeysExport** from the Host app) → leaf SHA-1 verification → optional **TestFlight** upload with **your** ASC API key secrets.
+3. Set `min-signed-bundles` to match your app (Watch companion apps often need `3` or more).
+
+### 7. Developer ID + notarization (macOS)
+
+Use [`sign@v1`](sign/) + `codesign` on the runner, then notarize with **your** App Store Connect API key. Template: [`.github/workflows/developer-id-notarize.template.yml`](.github/workflows/developer-id-notarize.template.yml). Notarization does **not** require an active Liminal Keys CI device.
+
+### 8. Verify in Console Sign audit
+
+Open **Console → Sign audit** (and **CI & automation → Recent CI enrollments** for enroll events). Each `codesign` / export sign operation from the job should appear with:
+
+- The **CI device** id from Action output `device-id` (or `LIMINAL_KEYS_DEVICE_ID` in job env).
+- The **identity** SHA-1 you allowed in trust and policy.
+- GitHub **run URL** context when the runner provided it at enroll time.
+
+Match those fields to your workflow run before you treat a release as complete.
 
 ---
 
@@ -135,9 +157,12 @@ Action inputs, outputs, and self-hosted behaviour: [`sign/README.md`](sign/READM
 
 | Path | Purpose |
 | --- | --- |
-| [`sign/`](sign/) | GitHub Action source and committed `dist/` |
+| [`sign/`](sign/) | Enroll + sign-check Action (`sign@v1`) |
+| [`export/`](export/) | Archive export, IPA verify, optional ASC upload (`export@v1`) |
 | [`.github/workflows/liminal-keys-dry-run.yml`](.github/workflows/liminal-keys-dry-run.yml) | Customer dry-run template (`@v1`) |
 | [`.github/workflows/sign-sample.yml`](.github/workflows/sign-sample.yml) | End-to-end sample build + codesign (`@v1`) |
+| [`.github/workflows/app-store-release.template.yml`](.github/workflows/app-store-release.template.yml) | App Store / TestFlight layout (copy to your repo) |
+| [`.github/workflows/developer-id-notarize.template.yml`](.github/workflows/developer-id-notarize.template.yml) | Developer ID + notarization layout |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Action unit tests, dist verify, actionlint |
 | [`docs/spike-results.md`](docs/spike-results.md) | Archived CTK spike (lk-15a) |
 
