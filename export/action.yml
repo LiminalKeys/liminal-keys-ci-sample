@@ -1,0 +1,135 @@
+name: Liminal Keys Export
+description: >-
+  Export an Xcode archive to IPA with the Liminal Keys export tool shipped in the Mac Host app,
+  verify every signed bundle against the expected leaf SHA-1, and optionally upload to App Store Connect.
+author: Liminal Keys
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  archive-path:
+    description: Path to the .xcarchive produced by xcodebuild archive.
+    required: true
+  export-options:
+    description: Path to ExportOptions.plist (method app-store, app-store-connect, etc.).
+    required: true
+  export-path:
+    description: Directory where xcodebuild -exportArchive writes the IPA (created if missing).
+    required: true
+  leaf-sha1:
+    description: >-
+      Expected leaf signing certificate SHA-1 (40 hex) for every signed .app/.appex in the IPA.
+      Use the same value as identity-sha1 on the sign Action / Console CI identity card.
+    required: true
+  host-app:
+    description: Installed Liminal Keys Virtual Smartcard .app path (bundled LiminalKeysExport lives in Contents/Helpers).
+    required: false
+    default: /Applications/Liminal Keys Virtual Smartcard.app
+  min-signed-bundles:
+    description: Minimum count of signed .app/.appex bundles to verify inside the IPA (iOS + Watch apps often need 3+).
+    required: false
+    default: '1'
+  upload-app-store:
+    description: When true, upload the IPA with xcrun altool (requires ASC_* env vars on the step).
+    required: false
+    default: 'false'
+  app-store-type:
+    description: altool --type value (ios, macos, etc.).
+    required: false
+    default: ios
+
+outputs:
+  ipa-path:
+    description: Absolute path to the exported .ipa file.
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve LiminalKeysExport
+      id: resolve
+      shell: bash
+      env:
+        INPUT_HOST_APP: ${{ inputs.host-app }}
+      run: |
+        set -euo pipefail
+        export_bin="${INPUT_HOST_APP}/Contents/Helpers/LiminalKeysExport"
+        if [[ ! -x "$export_bin" ]]; then
+          echo "::error::LiminalKeysExport not found at ${export_bin}. Install Liminal Keys for Mac (Host DMG) on this runner — see liminal-keys-ci-sample README."
+          exit 1
+        fi
+        echo "export-bin=${export_bin}" >> "$GITHUB_OUTPUT"
+
+    - name: Export archive (LiminalKeysExport)
+      id: export
+      shell: bash
+      env:
+        ARCHIVE: ${{ inputs.archive-path }}
+        EXPORT_OPTIONS: ${{ inputs.export-options }}
+        EXPORT_PATH: ${{ inputs.export-path }}
+        EXPORT_BIN: ${{ steps.resolve.outputs.export-bin }}
+      run: |
+        set -euo pipefail
+        if [[ ! -d "$ARCHIVE" ]]; then
+          echo "::error::archive-path is not a directory: ${ARCHIVE}"
+          exit 1
+        fi
+        if [[ ! -f "$EXPORT_OPTIONS" ]]; then
+          echo "::error::export-options file missing: ${EXPORT_OPTIONS}"
+          exit 1
+        fi
+        mkdir -p "$EXPORT_PATH"
+        "$EXPORT_BIN" \
+          --archive "$ARCHIVE" \
+          --export-options "$EXPORT_OPTIONS" \
+          --export-path "$EXPORT_PATH"
+        ipa="$(find "$EXPORT_PATH" -name '*.ipa' -print -quit)"
+        if [[ -z "$ipa" || ! -f "$ipa" ]]; then
+          echo "::error::Export did not produce an IPA under ${EXPORT_PATH}"
+          exit 1
+        fi
+        echo "ipa-path=${ipa}" >> "$GITHUB_OUTPUT"
+        echo "LIMINAL_KEYS_IPA_PATH=${ipa}" >> "$GITHUB_ENV"
+
+    - name: Verify IPA signatures (leaf SHA-1)
+      shell: bash
+      env:
+        IPA: ${{ steps.export.outputs.ipa-path }}
+        LEAF_SHA1: ${{ inputs.leaf-sha1 }}
+        MIN_SIGNED_BUNDLES: ${{ inputs.min-signed-bundles }}
+      run: |
+        set -euo pipefail
+        script="${{ github.action_path }}/scripts/verify-ipa-signatures.sh"
+        chmod +x "$script"
+        "$script" "$IPA" "$LEAF_SHA1"
+
+    - name: Upload to App Store Connect
+      if: inputs.upload-app-store == 'true'
+      shell: bash
+      env:
+        IPA: ${{ steps.export.outputs.ipa-path }}
+        ASC_KEY_ID: ${{ env.ASC_KEY_ID }}
+        ASC_ISSUER_ID: ${{ env.ASC_ISSUER_ID }}
+        ASC_KEY_P8: ${{ env.ASC_KEY_P8 }}
+        APP_STORE_TYPE: ${{ inputs.app-store-type }}
+      run: |
+        set -euo pipefail
+        missing=()
+        [[ -n "${ASC_KEY_ID:-}" ]] || missing+=("ASC_KEY_ID")
+        [[ -n "${ASC_ISSUER_ID:-}" ]] || missing+=("ASC_ISSUER_ID")
+        [[ -n "${ASC_KEY_P8:-}" ]] || missing+=("ASC_KEY_P8")
+        if ((${#missing[@]})); then
+          echo "::error::upload-app-store=true requires env: ${missing[*]} (never commit .p8 material)"
+          exit 1
+        fi
+        key_dir="${RUNNER_TEMP}/asc-private-keys"
+        mkdir -p "$key_dir"
+        key_file="$key_dir/AuthKey_${ASC_KEY_ID}.p8"
+        umask 077
+        printf '%s\n' "$ASC_KEY_P8" > "$key_file"
+        chmod 600 "$key_file"
+        xcrun altool --upload-app \
+          --type "$APP_STORE_TYPE" \
+          --file "$IPA" \
+          --apiKey "$ASC_KEY_ID" \
+          --apiIssuer "$ASC_ISSUER_ID"
