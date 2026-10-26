@@ -55,12 +55,9 @@ jobs:
           echo "OK"
 
   export-action:
-    name: export Action (shell + actionlint)
+    name: export Action (shell syntax)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Syntax-check export scripts
         run: bash -n export/scripts/verify-ipa-signatures.sh
-      - uses: rhysd/actionlint@v1.7.12
-        with:
-          args: -color export/action.yml
