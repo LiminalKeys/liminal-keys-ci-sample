@@ -22,16 +22,25 @@ This repository ships the Actions, **dry-run** and **sign-sample** workflows, an
 | **Host CLI version** | **1.0.0-beta.4** or newer (bundled in the public Host DMG). GitHub-hosted runners get the latest DMG automatically unless you pin `host-dmg-url` / `host-dmg-sha256`. |
 | **GitHub repo** | Where your app and workflow live (public or private). |
 
-### 2. Console — trust GitHub and allow CI signing
+### 2. Console — CI & automation (Trusts tab)
 
-1. Open [Liminal Keys Console](https://console.liminalkeys.com) and select your workspace.
-2. **Copy your tenant ID** (UUID). It appears under **Account & workspace** and under **CI & automation** — you need it for GitHub variables and for the OIDC audience.
-3. **CI & automation → GitHub trust rules** — create a rule for this repository:
-   - **Repository** — `owner/repo` (exact match for private repos).
-   - **Ref / branch** — restrict to branches that will run signing (e.g. `refs/heads/main` only). Runs from **other branches are rejected** at enroll time (see Troubleshooting).
-   - Optionally scope by **GitHub Environment** name if you use environment-scoped variables and protection rules.
-4. **Signing policy** — allow the certificate you will use in CI. For OIDC enrollment, include a subject that matches **CI workload (trusted issuer)** (Console wording for GitHub OIDC–backed CI devices).
-5. Note the **SHA-1 thumbprint** of that certificate (40 hex characters; colons optional). You will pass it as `identity-sha1` or `LIMINAL_KEYS_CERT_SHA1`.
+Full customer guide: [Liminal Keys `ci-quickstart`](https://github.com/LiminalKeys/liminal-keys/blob/main/docs/ci-quickstart.md) (private repo) — summary below using mock names (`acme-corp/acme-ios`).
+
+1. Open [Liminal Keys Console](https://console.liminalkeys.com) → **CI & automation**. Use the tabs **Trusts**, **Activity**, and **Enrollment keys**.
+2. Complete the **Set up CI signing** checklist on **Trusts** (all three steps):
+   - **Add a GitHub trust** — **Trusts** → **Add GitHub trust**.
+   - **Allow it in a policy rule** — **Policy rules** → Allow / **sign** → subject **CI workload (trusted issuer)** → your trust → **Apply policy**.
+   - **Run your workflow** — after variables below are set.
+3. **Add GitHub trust** — required fields (Console/API return **400** if incomplete; duplicate **Trust name** → **409**):
+   - **Repository** — e.g. `acme-corp/acme-ios` (numeric repository ID for private repos).
+   - **Trust name** — e.g. `Acme iOS TestFlight release`.
+   - **Branch or tag** * — e.g. `refs/heads/main`.
+   - **Workflow file** * — e.g. `acme-corp/acme-ios/.github/workflows/release.yml@refs/heads/main`.
+   - **Identities in scope** * — at least one signing certificate (copy its **SHA-1** for `LIMINAL_KEYS_CERT_SHA1`).
+   - **Allowed runners** — GitHub-hosted, self-hosted, or either (must match the workflow runner).
+4. Copy **Workspace tenant ID** from the Trusts tab → `LIMINAL_KEYS_TENANT_ID`.
+5. If enroll fails, open **Activity** → refused row → **refusal drawer** (reason code, expected vs got). When Console trust prefill is enabled, use **Create trust from this run** or **Paste claims from a test run** on Add trust.
+6. **Second app, same distribution cert:** add a **new trust** per repo and a **new policy rule**; reuse the same cert SHA-1; create a new Apple provisioning profile per bundle ID.
 
 ### 3. GitHub — variables and permissions
 
@@ -116,6 +125,7 @@ After the dry run succeeds on a **self-hosted macOS** runner with **Liminal Keys
 1. Add **`ExportOptions.plist`** for `method: app-store` or App Store Connect export.
 2. Copy [`.github/workflows/app-store-release.template.yml`](.github/workflows/app-store-release.template.yml) — archive → [`export@v1`](export/) (bundled **LiminalKeysExport** from the Host app) → leaf SHA-1 verification → optional **TestFlight** upload with **your** ASC API key secrets.
 3. Set `min-signed-bundles` to match your app (Watch companion apps often need `3` or more).
+4. App Store Connect **`.p8`** downloads **once** — store `ASC_KEY_P8` (and `ASC_KEY_ID`, `ASC_ISSUER_ID`) in GitHub **secrets** only; see [`export/README.md`](export/README.md).
 
 ### 7. Developer ID + notarization (macOS)
 
@@ -123,7 +133,7 @@ Use [`sign@v1`](sign/) + `codesign` on the runner, then notarize with **your** A
 
 ### 8. Verify in Console Sign audit
 
-Open **Console → Sign audit** (and **CI & automation → Recent CI enrollments** for enroll events). Each `codesign` / export sign operation from the job should appear with:
+Open **Console → Sign audit** (and **CI & automation → Activity** for enroll/refusal events). Each `codesign` / export sign operation from the job should appear with:
 
 - The **CI device** id from Action output `device-id` (or `LIMINAL_KEYS_DEVICE_ID` in job env).
 - The **identity** SHA-1 you allowed in trust and policy.
@@ -143,7 +153,7 @@ Match those fields to your workflow run before you treat a release as complete.
 | Host CLI error: unknown flag `--ttl-minutes` | Manual CLI invocation | Host CLI expects **`--ttl`** with a duration (`60m`, `90m`). The Action input is **`ttl-minutes`**; it maps to `--ttl 60m` internally. |
 | `CLI enroll JSON missing deviceId and/or signing SHA-1` / top-level keys listed | Host CLI JSON shape | Enroll result uses **`identities[].sha1`** (and `deviceId`). Upgrade `@v1`; optional `identity-sha1` input must be 40 hex chars. |
 | `GitHub OIDC is unavailable. Add permissions: id-token: write` | Job missing OIDC permission | Add `permissions: id-token: write` (and `contents: read`) on the job or workflow. |
-| `The identity token was refused.` / HTTP **403** during enroll | GitHub trust rule **ref / branch** mismatch | Run from a branch allowed by the rule (e.g. **`main` only**). Widen the rule or merge to the allowed branch. Check repository name for private repos. |
+| `The identity token was refused.` / HTTP **403** during enroll | GitHub trust **branch**, **workflow file**, repository, or environment mismatch | **Activity** → refusal drawer (**Expected** vs **Got**). Run from allowed branch/workflow or edit the trust. |
 | Variable empty though set in **Environment** | Job not bound to that environment | Add `environment: your-env-name` on the job. Do **not** use `${{ github.environment }}` — it is not a valid context. |
 | `ci sign-check failed` on self-hosted | Token extension / smartcard not enabled on that Mac | Enable once interactively (System Settings → Crypto Token; Host enrolled). The Action does not apply privileged smartcard changes when reusing an existing Host on self-hosted runners. |
 | `Passwordless sudo required` on self-hosted | Host missing and install attempted | Install Host under `/Applications` manually, or allow `sudo -n` for DMG install when the app is absent. |
