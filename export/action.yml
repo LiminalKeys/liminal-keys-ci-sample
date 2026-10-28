@@ -122,12 +122,10 @@ runs:
           echo "::error::upload-app-store=true requires env: ${missing[*]} (never commit .p8 material)"
           exit 1
         fi
-        key_dir="${RUNNER_TEMP}/asc-private-keys"
-        mkdir -p "$key_dir"
-        key_file="$key_dir/AuthKey_${ASC_KEY_ID}.p8"
-        umask 077
-        printf '%s\n' "$ASC_KEY_P8" > "$key_file"
-        chmod 600 "$key_file"
+        write_script="${{ github.action_path }}/scripts/write-asc-api-key.sh"
+        chmod +x "$write_script"
+        key_file="$("$write_script")"
+        trap 'rm -f "$key_file"' EXIT
         xcrun altool --upload-app \
           --type "$APP_STORE_TYPE" \
           --file "$IPA" \
