@@ -79,7 +79,11 @@ Also sets job env `LIMINAL_KEYS_IPA_PATH`.
 
 Store **your** API key in GitHub secrets (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`). **Liminal Keys never sees or stores your App Store Connect private key.**
 
-Pass them only via `env:` on the export step (not inside `run:` script text).
+Apple lets you **download the `.p8` private key only once** when the API key is created. Paste the full PEM contents into a GitHub Actions secret (for example `ASC_KEY_P8`); do not commit it to the repo.
+
+Pass secrets only via `env:` on the export step (not inside `run:` script text).
+
+When `upload-app-store: true`, the Action writes the key to `~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8` (mode `600`) because `xcrun altool --apiKey` looks there by default, then deletes the file when the step finishes. The same path works for manual `altool` uploads; [`write-asc-api-key.sh`](scripts/write-asc-api-key.sh) is bash 3.2–safe for copy-paste into your own workflow steps.
 
 ## Console Sign audit
 
