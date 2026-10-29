@@ -50,34 +50,25 @@ jobs:
           INPUT_SHA256: ${{ env.LK_CLI_SHA256_LINUX_X64 }}
         run: bash .github/scripts/install-liminal-keys-cli.sh
 
-      - name: Prepare CI state passphrase
+      # Keep CI state passphrase in a file only (never GITHUB_ENV — masked values become "***" in later steps).
+      - name: Enroll, mint, Apple GET /v1/apps, masked CLI output
+        env:
+          MINT_JSON: ${{ runner.temp }}/asc-mint.json
         run: |
           set -euo pipefail
           state_dir="${RUNNER_TEMP}/liminal-keys"
           passphrase_file="${state_dir}/.passphrase"
           mkdir -p "${state_dir}"
-          if [ -z "${LIMINAL_KEYS_STATE_PASSPHRASE:-}" ] && [ ! -f "${passphrase_file}" ]; then
-            pass="$(openssl rand -hex 32)"
-            ( umask 077; printf '%s' "${pass}" > "${passphrase_file}" )
-          elif [ -n "${LIMINAL_KEYS_STATE_PASSPHRASE:-}" ] && [ ! -f "${passphrase_file}" ]; then
-            ( umask 077; printf '%s' "${LIMINAL_KEYS_STATE_PASSPHRASE}" > "${passphrase_file}" )
-            echo "::add-mask::${LIMINAL_KEYS_STATE_PASSPHRASE}"
-          fi
-          echo "LIMINAL_KEYS_STATE_DIR=${state_dir}" >> "${GITHUB_ENV}"
-          echo "LIMINAL_KEYS_STATE_PASSPHRASE_FILE=${passphrase_file}" >> "${GITHUB_ENV}"
+          umask 077
+          openssl rand -hex 32 > "${passphrase_file}"
+          export LIMINAL_KEYS_STATE_DIR="${state_dir}"
+          export LIMINAL_KEYS_STATE_PASSPHRASE_FILE="${passphrase_file}"
 
-      - name: CI enroll (GitHub OIDC)
-        run: |
-          set -euo pipefail
-          args=(ci enroll --tenant-id "${LIMINAL_KEYS_TENANT_ID}" --ttl 60m --json)
-          args+=(--identity "${LIMINAL_KEYS_CERT_SHA1}")
-          liminal-keys "${args[@]}"
+          echo "=== CI enroll (GitHub OIDC) ==="
+          liminal-keys ci enroll --tenant-id "${LIMINAL_KEYS_TENANT_ID}" --ttl 60m --identity "${LIMINAL_KEYS_CERT_SHA1}" --json
+          liminal-keys ci status --json
 
-      - name: Mint ASC token (JSON) and verify 10-minute lifetime
-        env:
-          MINT_JSON: ${{ runner.temp }}/asc-mint.json
-        run: |
-          set -euo pipefail
+          echo "=== Mint ASC token ==="
           mint_json="${MINT_JSON}"
           liminal-keys asc token --asc-key-id "${LIMINAL_KEYS_ASC_KEY_ID}" --json > "${mint_json}"
           token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "${mint_json}")"
@@ -106,12 +97,7 @@ jobs:
           print(f"JWT lifetime OK ({ttl}s, exp≈now+{exp - now}s)")
           PY
 
-      - name: Apple App Store Connect GET /v1/apps
-        env:
-          MINT_JSON: ${{ runner.temp }}/asc-mint.json
-        run: |
-          set -euo pipefail
-          token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "${MINT_JSON}")"
+          echo "=== Apple GET /v1/apps ==="
           http_code="$(curl -sS -o "${RUNNER_TEMP}/apple-apps.json" -w '%{http_code}' \
             -H "Authorization: Bearer ${token}" \
             "https://api.appstoreconnect.apple.com/v1/apps?limit=1")"
@@ -122,11 +108,8 @@ jobs:
           fi
           echo "Apple GET /v1/apps?limit=1 returned 200."
 
-      - name: CLI masks token on interactive stdout (no full JWT in log)
-        run: |
-          set -euo pipefail
+          echo "=== Masked token on TTY stdout ==="
           display_log="${RUNNER_TEMP}/asc-token-display.log"
-          # Pseudo-TTY so the CLI prints MaskJwtForDisplay (not the full JWT).
           script -qefc "liminal-keys asc token --asc-key-id ${LIMINAL_KEYS_ASC_KEY_ID}" /dev/null 2>&1 | tee "${display_log}"
           if grep -E 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' "${display_log}"; then
             echo "::error::Job log contains a full JWT; expected masked display only." >&2
@@ -139,14 +122,19 @@ jobs:
           fi
           echo "Masked token display OK."
 
+          {
+            echo "LIMINAL_KEYS_STATE_DIR=${state_dir}"
+            echo "LIMINAL_KEYS_STATE_PASSPHRASE_FILE=${passphrase_file}"
+          } >> "${GITHUB_ENV}"
+
       - name: CI unenroll
         if: always()
         run: |
           set -euo pipefail
-          if command -v liminal-keys >/dev/null 2>&1; then
+          if command -v liminal-keys >/dev/null 2>&1 && [[ -f "${LIMINAL_KEYS_STATE_PASSPHRASE_FILE:-}" ]]; then
             liminal-keys ci unenroll --json
           else
-            echo "Skipping unenroll (CLI not installed)."
+            echo "Skipping unenroll (CLI or CI state not available)."
           fi
 
       - name: Summary
