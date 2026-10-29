@@ -60,9 +60,10 @@ jobs:
           passphrase_file="${state_dir}/.passphrase"
           mkdir -p "${state_dir}"
           umask 077
-          openssl rand -hex 32 > "${passphrase_file}"
+          pass="$(openssl rand -hex 32)"
           export LIMINAL_KEYS_STATE_DIR="${state_dir}"
-          export LIMINAL_KEYS_STATE_PASSPHRASE_FILE="${passphrase_file}"
+          export LIMINAL_KEYS_STATE_PASSPHRASE="${pass}"
+          unset LIMINAL_KEYS_STATE_PASSPHRASE_FILE
 
           echo "=== CI enroll (GitHub OIDC) ==="
           liminal-keys ci enroll --tenant-id "${LIMINAL_KEYS_TENANT_ID}" --ttl 60m --identity "${LIMINAL_KEYS_CERT_SHA1}" --json
@@ -121,6 +122,7 @@ jobs:
           fi
           echo "Masked token display OK."
 
+          printf '%s' "${pass}" > "${passphrase_file}"
           {
             echo "LIMINAL_KEYS_STATE_DIR=${state_dir}"
             echo "LIMINAL_KEYS_STATE_PASSPHRASE_FILE=${passphrase_file}"
