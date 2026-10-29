@@ -9,6 +9,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  actions: read
 
 env:
   LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
@@ -41,8 +42,19 @@ jobs:
             exit 1
           fi
 
+      # Composite action lives in private liminal-keys; checkout + local `uses` avoids runner action-resolution failures.
+      - name: Checkout setup-liminal-keys action
+        uses: actions/checkout@v4
+        with:
+          repository: LiminalKeys/liminal-keys
+          ref: f6fc33251c648fe2bd6b1d86239d99defdbd5ab1
+          sparse-checkout: |
+            actions/setup-liminal-keys
+          sparse-checkout-cone-mode: false
+          path: _liminal-keys-action
+
       - name: Setup Liminal Keys CLI and enroll (GitHub OIDC)
-        uses: LiminalKeys/liminal-keys/actions/setup-liminal-keys@f6fc33251c648fe2bd6b1d86239d99defdbd5ab1
+        uses: ./_liminal-keys-action/actions/setup-liminal-keys
         with:
           version: ${{ env.LK_CLI_VERSION }}
           sha256: ${{ env.LK_CLI_SHA256_LINUX_X64 }}
