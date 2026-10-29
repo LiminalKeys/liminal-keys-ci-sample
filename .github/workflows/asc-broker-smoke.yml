@@ -43,12 +43,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Install Liminal Keys CLI (private cli-v* release)
-        env:
-          GH_TOKEN: ${{ secrets.LIMINAL_KEYS_RELEASE_GITHUB_TOKEN }}
-          INPUT_VERSION: ${{ env.LK_CLI_VERSION }}
-          INPUT_SHA256: ${{ env.LK_CLI_SHA256_LINUX_X64 }}
-        run: bash .github/scripts/install-liminal-keys-cli.sh
+      - name: Install Liminal Keys CLI (public API)
+        uses: LiminalKeys/setup-liminal-keys@v1
+        with:
+          version: ${{ env.LK_CLI_VERSION }}
+          sha256: ${{ env.LK_CLI_SHA256_LINUX_X64 }}
 
       # Keep CI state passphrase in a file only (never GITHUB_ENV — masked values become "***" in later steps).
       - name: Enroll, mint, Apple GET /v1/apps, masked CLI output
