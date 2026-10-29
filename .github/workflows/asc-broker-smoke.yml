@@ -78,9 +78,9 @@ jobs:
             exit 1
           fi
           echo "::add-mask::${token}"
-          python3 <<'PY' "${token}"
+          python3 - "${mint_json}" <<'PY'
           import base64, json, sys, time
-          jwt = sys.argv[1]
+          jwt = json.load(open(sys.argv[1]))["token"]
           parts = jwt.split(".")
           if len(parts) != 3:
               raise SystemExit("JWT must have three segments")
