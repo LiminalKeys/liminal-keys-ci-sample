@@ -94,6 +94,10 @@ jobs:
 
 Success: job summary shows `signing-sha1`, `device-id`, and `expires-at`; Console **audit** shows the CI enroll/sign-check. The Action **revokes** the device in a post step.
 
+### 4b. ASC broker smoke (mint + Apple read API)
+
+After you import an App Store Connect key in Console and add a **`mint_asc_token`** allow rule for the same GitHub trust, set **`LIMINAL_KEYS_ASC_KEY_ID`** (Liminal key UUID) and run [**ASC broker smoke**](.github/workflows/asc-broker-smoke.yml) via **Actions → ASC broker smoke → Run workflow**. It reuses the same OIDC enroll path as the dry run, mints a 10-minute token with `liminal-keys asc token`, calls Apple **GET /v1/apps?limit=1**, and asserts the CLI log shows a **masked** token (not the full JWT).
+
 **Self-hosted:** add `install-host: auto` (default) when the Host is already installed; use `never` only if the CLI is preinstalled and you must skip all install logic.
 
 ### 5. Sign your app
