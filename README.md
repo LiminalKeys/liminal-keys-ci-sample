@@ -2,7 +2,7 @@
 
 Companies keep control of their most valuable assets — **certificates and signing keys** — in **Key Vault**, while agencies and contractors build and ship under the company’s policy. Liminal Keys connects CI to that custody without copying private keys onto runners.
 
-Sign macOS and iOS builds in GitHub Actions with **ephemeral CI devices**: GitHub OIDC (or an optional `lkci_` key), the [`sign`](sign/) Action (`LiminalKeys/liminal-keys-ci-sample/sign@v1`), optional [`export`](export/) for App Store IPA export + verification (`export@v1`), and your signing identity stored in **Key Vault**. Private keys never leave Liminal Keys custody.
+Sign macOS and iOS builds in GitHub Actions with **ephemeral CI devices**: GitHub OIDC (or an optional `lkci_` key), the [`sign`](sign/) Action (`LiminalKeys/liminal-keys-ci-sample/sign@v1`), optional [`export`](export/) for App Store IPA export + verification (`export@v1`), optional [`upload`](upload/) to send an IPA via the **ASC broker** (`upload@v1`, no `.p8` on the runner), and your signing identity stored in **Key Vault**. Private keys never leave Liminal Keys custody.
 
 **Reference:** [WatchTeams](https://www.liminalkeys.com/customers/watchteams/) **2.1.0** shipped to the App Store with signatures from end to end through this CI path (ephemeral CI device, no smart card on the runner).
 

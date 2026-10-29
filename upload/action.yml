@@ -1,0 +1,113 @@
+name: Liminal Keys Upload
+description: >-
+  Enroll an ephemeral CI device (GitHub OIDC or CI key), mint a short-lived App Store Connect
+  upload token through the Liminal Keys broker, and upload an IPA with the cross-platform CLI.
+  No App Store Connect .p8 on the runner.
+author: Liminal Keys
+branding:
+  icon: upload
+  color: green
+
+inputs:
+  tenant-id:
+    description: Liminal Keys tenant ID (Console workspace).
+    required: true
+  asc-key-id:
+    description: Liminal Keys App Store Connect upload key id (Console import UUID, not Apple Key ID).
+    required: true
+  ipa-path:
+    description: Path to the .ipa file to upload.
+    required: true
+  bundle-id:
+    description: Bundle ID for REST upload (resolves the App Store Connect app id). Omit when using app-id or transporter.
+    required: false
+  app-id:
+    description: App Store Connect app id for REST upload. Omit when using bundle-id or transporter.
+    required: false
+  transporter:
+    description: When true, upload with iTMSTransporter (macOS only; requires Transporter on PATH).
+    required: false
+    default: "false"
+  cli-version:
+    description: Cross-platform CLI release semver (matches cli-v* on LiminalKeys/liminal-keys).
+    required: true
+  cli-sha256:
+    description: SHA-256 hex of the CLI binary for this runner OS/arch (from release SHA256SUMS.txt).
+    required: true
+  setup-liminal-keys-ref:
+    description: Git ref for LiminalKeys/liminal-keys/actions/setup-liminal-keys (commit SHA or tag).
+    required: false
+    default: f6fc33251c648fe2bd6b1d86239d99defdbd5ab1
+  api-base-url:
+    description: Liminal Keys API base URL.
+    required: false
+    default: https://api.liminalkeys.com
+  ttl:
+    description: CI device TTL passed to ci enroll (e.g. 60m).
+    required: false
+    default: 60m
+  ci-key:
+    description: Optional lkci_ CI key when GitHub OIDC is unavailable. Pass via secrets.* only.
+    required: false
+
+outputs:
+  device-id:
+    description: Ephemeral CI device id (revoke with liminal-keys ci unenroll when the job ends).
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Liminal Keys CLI and enroll
+      # Pin bump when setup-liminal-keys changes; override via setup-liminal-keys-ref when forking.
+      uses: LiminalKeys/liminal-keys/actions/setup-liminal-keys@f6fc33251c648fe2bd6b1d86239d99defdbd5ab1
+      with:
+        version: ${{ inputs.cli-version }}
+        sha256: ${{ inputs.cli-sha256 }}
+        api-base-url: ${{ inputs.api-base-url }}
+        tenant-id: ${{ inputs.tenant-id }}
+        ttl: ${{ inputs.ttl }}
+        enroll: "true"
+      env:
+        LIMINAL_KEYS_CI_KEY: ${{ inputs.ci-key }}
+
+    - name: Upload IPA (broker mint + lk upload)
+      shell: bash
+      env:
+        INPUT_IPA: ${{ inputs.ipa-path }}
+        INPUT_ASC_KEY_ID: ${{ inputs.asc-key-id }}
+        INPUT_BUNDLE_ID: ${{ inputs.bundle-id }}
+        INPUT_APP_ID: ${{ inputs.app-id }}
+        INPUT_TRANSPORTER: ${{ inputs.transporter }}
+        INPUT_API_BASE_URL: ${{ inputs.api-base-url }}
+        LIMINAL_KEYS_ASC_KEY_ID: ${{ inputs.asc-key-id }}
+      run: |
+        set -euo pipefail
+        if [[ ! -f "${INPUT_IPA}" ]]; then
+          echo "::error::ipa-path is not a file: ${INPUT_IPA}"
+          exit 1
+        fi
+        if [[ -z "${INPUT_ASC_KEY_ID}" ]]; then
+          echo "::error::asc-key-id is required"
+          exit 1
+        fi
+        args=(upload --ipa "${INPUT_IPA}" --asc-key-id "${INPUT_ASC_KEY_ID}" --json)
+        if [[ -n "${INPUT_API_BASE_URL}" ]]; then
+          args+=(--api-base-url "${INPUT_API_BASE_URL}")
+        fi
+        if [[ "${INPUT_TRANSPORTER}" == "true" ]]; then
+          if [[ "$(uname -s)" != "Darwin" ]]; then
+            echo "::error::transporter=true requires a macOS runner"
+            exit 1
+          fi
+          args+=(--transporter)
+        else
+          if [[ -n "${INPUT_APP_ID}" ]]; then
+            args+=(--app-id "${INPUT_APP_ID}")
+          elif [[ -n "${INPUT_BUNDLE_ID}" ]]; then
+            args+=(--bundle-id "${INPUT_BUNDLE_ID}")
+          else
+            echo "::error::REST upload requires bundle-id or app-id (or set transporter=true)"
+            exit 1
+          fi
+        fi
+        liminal-keys "${args[@]}"
