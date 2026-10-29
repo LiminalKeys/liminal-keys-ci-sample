@@ -66,7 +66,6 @@ jobs:
 
           echo "=== CI enroll (GitHub OIDC) ==="
           liminal-keys ci enroll --tenant-id "${LIMINAL_KEYS_TENANT_ID}" --ttl 60m --identity "${LIMINAL_KEYS_CERT_SHA1}" --json
-          liminal-keys ci status --json
 
           echo "=== Mint ASC token ==="
           mint_json="${MINT_JSON}"
