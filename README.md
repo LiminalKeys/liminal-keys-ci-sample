@@ -32,7 +32,8 @@ Full customer guide: [Liminal Keys `ci-quickstart`](https://github.com/LiminalKe
    - **Allow it in a policy rule** — **Policy rules** → Allow / **sign** → subject **CI workload (trusted issuer)** → your trust → **Apply policy**.
    - **Run your workflow** — after variables below are set.
 3. **Add GitHub trust** — required fields (Console/API return **400** if incomplete; duplicate **Trust name** → **409**):
-   - **Repository** — e.g. `acme-corp/acme-ios` (numeric repository ID for private repos).
+   - **Repository** — plain text `owner/name`, e.g. `acme-corp/acme-ios` (not a URL).
+   - **Repository numeric ID** — required; GitHub OIDC claim `repository_id`. Repo Settings does not show it — with GitHub CLI: `gh api repos/acme-corp/acme-ios --jq .id`
    - **Trust name** — e.g. `Acme iOS TestFlight release`.
    - **Branch or tag** * — e.g. `refs/heads/main`.
    - **Workflow file** * — e.g. `acme-corp/acme-ios/.github/workflows/release.yml@refs/heads/main`.
@@ -96,9 +97,24 @@ Success: job summary shows `signing-sha1`, `device-id`, and `expires-at`; Consol
 
 ### 4b. ASC broker smoke (mint + Apple read API)
 
-After you import an App Store Connect key in Console and add a **`mint_asc_token`** allow rule for the same GitHub trust, set **`LIMINAL_KEYS_ASC_KEY_ID`** (Liminal key UUID) and run [**ASC broker smoke**](.github/workflows/asc-broker-smoke.yml) via **Actions → ASC broker smoke → Run workflow**. It reuses the same OIDC enroll path as the dry run, mints a 10-minute token with `liminal-keys asc token`, calls Apple **GET /v1/apps?limit=1**, and asserts the CLI log shows a **masked** token (not the full JWT).
+After you import an App Store Connect key (Console **App Store Connect keys** or `liminal-keys admin asc import` on a Mac — team keys: prefer **App Manager** in App Store Connect, not Admin) and add an allow rule (**Policy rules → Issue App Store Connect upload tokens**, or `liminal-keys admin asc allow-mint --apply`), set repository variables:
 
-**Self-hosted:** add `install-host: auto` (default) when the Host is already installed; use `never` only if the CLI is preinstalled and you must skip all install logic.
+| Variable | Value |
+| --- | --- |
+| `LIMINAL_KEYS_ASC_KEY_ID` | Liminal UUID from import (not Apple’s 10-character Key ID) |
+
+Also requires `LIMINAL_KEYS_TENANT_ID`, `LIMINAL_KEYS_CERT_SHA1`, and secret **`LIMINAL_KEYS_RELEASE_GITHUB_TOKEN`** (read access to private `cli-v*` releases on `LiminalKeys/liminal-keys`).
+
+Run [**ASC broker smoke**](.github/workflows/asc-broker-smoke.yml) via **Actions → ASC broker smoke → Run workflow**. It installs CLI **0.1.10** via `gh release download`, enrolls with GitHub OIDC, mints a **10-minute** token (`expMinutes=10`), calls Apple **GET /v1/apps?limit=1**, and asserts the CLI log shows a **masked** token (not the full JWT). Confirm **Console → Activity** shows **`asc_token_issued`** for the run.
+
+**Release workflow patterns (copy from customer templates):**
+
+- **`asc_mint_smoke_only`** — workflow dispatch input that skips archive/export/upload and only runs OIDC enroll + `asc token` + a read-only Apple API call (same idea as this smoke workflow on macOS release pipelines).
+- **`asc_upload_mode: p8-altool`** — legacy fallback: `ASC_KEY_P8` / `altool` on the runner when the broker path is unavailable; broker path (`lk-mint`) uses `LIMINAL_KEYS_ASC_KEY_ID` and no `.p8` secret.
+
+Public CLI install docs are **coming soon**; this smoke uses the private release pattern in [`.github/scripts/install-liminal-keys-cli.sh`](.github/scripts/install-liminal-keys-cli.sh).
+
+**Self-hosted macOS (dry run / sign):** add `install-host: auto` (default) when the Host is already installed; use `never` only if the CLI is preinstalled and you must skip all install logic.
 
 ### 5. Sign your app
 
