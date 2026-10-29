@@ -19,8 +19,19 @@ const {
   tryPickDeviceId,
   parseSignCheckReport,
 } = require('./lib/exec-json');
-const { buildCiEnrollArgs, buildCiSignCheckArgs } = require('./lib/host-cli-args');
+const {
+  buildCiEnrollArgs,
+  buildCiSignCheckArgs,
+  buildHostStatusArgs,
+} = require('./lib/host-cli-args');
 const { validateOidcOrCiKey } = require('./lib/auth');
+const { classifyHostCliFailure } = require('./lib/host-ci-errors');
+const {
+  hostStatusTimeoutMs,
+  hostEnrollTimeoutMs,
+  hostSignCheckTimeoutMs,
+  hostSetupTimeoutMs,
+} = require('./lib/host-timeouts');
 
 /**
  * @param {unknown} err
@@ -31,6 +42,22 @@ function failCliJsonParse(err, secrets) {
     core.error(`CLI JSON top-level keys: ${err.topLevelKeys.join(', ')}`);
   }
   core.setFailed(safeErrorMessage(err instanceof Error ? err.message : String(err), secrets));
+}
+
+/**
+ * @param {import('./lib/exec-json').ExecJsonResult & { timedOut?: boolean }} result
+ * @param {import('./lib/host-ci-errors').HostCiPhase} phase
+ */
+function failHostCli(result, phase) {
+  const { headline, detail } = classifyHostCliFailure({
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    timedOut: Boolean(result.timedOut),
+    phase,
+  });
+  core.error(detail);
+  core.setFailed(headline);
 }
 
 async function run() {
@@ -140,10 +167,24 @@ async function run() {
   const setupResult = await execCapture('bash', [setupScript], {
     env: setupEnv,
     secrets,
+    timeoutMs: hostSetupTimeoutMs(),
   });
   if (setupResult.exitCode !== 0) {
-    core.error(setupResult.stderr || setupResult.stdout);
-    core.setFailed('Host setup failed.');
+    failHostCli(setupResult, 'setup');
+    return;
+  }
+
+  core.info('Checking Host bridge reachability (status)...');
+  const statusResult = await execCapture(HOST_CLI, buildHostStatusArgs({ apiBaseUrl }), {
+    env: {
+      ...process.env,
+      LIMINAL_KEYS_API_BASE_URL: apiBaseUrl,
+    },
+    secrets,
+    timeoutMs: hostStatusTimeoutMs(),
+  });
+  if (statusResult.exitCode !== 0) {
+    failHostCli(statusResult, 'status');
     return;
   }
 
@@ -166,10 +207,10 @@ async function run() {
   const enrollResult = await execCapture(HOST_CLI, enrollArgs, {
     env: enrollEnv,
     secrets,
+    timeoutMs: hostEnrollTimeoutMs(),
   });
   if (enrollResult.exitCode !== 0) {
-    core.error(enrollResult.stderr || enrollResult.stdout);
-    core.setFailed('ci enroll failed.');
+    failHostCli(enrollResult, 'enroll');
     return;
   }
 
@@ -214,10 +255,10 @@ async function run() {
       LIMINAL_KEYS_API_BASE_URL: apiBaseUrl,
     },
     secrets,
+    timeoutMs: hostSignCheckTimeoutMs(),
   });
   if (signCheckResult.exitCode !== 0) {
-    core.error(signCheckResult.stderr || signCheckResult.stdout);
-    core.setFailed('ci sign-check failed.');
+    failHostCli(signCheckResult, 'sign-check');
     return;
   }
 

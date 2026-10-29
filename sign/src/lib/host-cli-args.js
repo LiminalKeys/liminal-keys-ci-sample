@@ -86,6 +86,20 @@ function buildCiUnenrollArgs({ apiBaseUrl } = {}) {
 }
 
 /**
+ * Lightweight bridge reachability check before ci enroll (Host `status --json`).
+ *
+ * @param {string} [apiBaseUrl]
+ * @returns {string[]}
+ */
+function buildHostStatusArgs({ apiBaseUrl } = {}) {
+  const args = ['status', '--json'];
+  if (apiBaseUrl) {
+    args.push('--api-base-url', apiBaseUrl);
+  }
+  return args;
+}
+
+/**
  * @param {string[]} argv
  * @returns {string[]}
  */
@@ -117,6 +131,7 @@ module.exports = {
   buildCiEnrollArgs,
   buildCiSignCheckArgs,
   buildCiUnenrollArgs,
+  buildHostStatusArgs,
   extractOptionFlags,
   assertHostCliOptionFlags,
 };
