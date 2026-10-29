@@ -9,7 +9,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  actions: read
 
 env:
   LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
@@ -42,26 +41,37 @@ jobs:
             exit 1
           fi
 
-      # Composite action lives in private liminal-keys; checkout + local `uses` avoids runner action-resolution failures.
-      - name: Checkout setup-liminal-keys action
-        uses: actions/checkout@v4
-        with:
-          repository: LiminalKeys/liminal-keys
-          ref: f6fc33251c648fe2bd6b1d86239d99defdbd5ab1
-          sparse-checkout: |
-            actions/setup-liminal-keys
-          sparse-checkout-cone-mode: false
-          path: _liminal-keys-action
+      - uses: actions/checkout@v4
 
-      - name: Setup Liminal Keys CLI and enroll (GitHub OIDC)
-        uses: ./_liminal-keys-action/actions/setup-liminal-keys
-        with:
-          version: ${{ env.LK_CLI_VERSION }}
-          sha256: ${{ env.LK_CLI_SHA256_LINUX_X64 }}
-          tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
-          identity-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
-          ttl: 60m
-          enroll: "true"
+      - name: Install Liminal Keys CLI (private cli-v* release)
+        env:
+          GH_TOKEN: ${{ secrets.LIMINAL_KEYS_RELEASE_GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ env.LK_CLI_VERSION }}
+          INPUT_SHA256: ${{ env.LK_CLI_SHA256_LINUX_X64 }}
+        run: bash .github/scripts/install-liminal-keys-cli.sh
+
+      - name: Prepare CI state passphrase
+        run: |
+          set -euo pipefail
+          state_dir="${RUNNER_TEMP}/liminal-keys"
+          passphrase_file="${state_dir}/.passphrase"
+          mkdir -p "${state_dir}"
+          if [ -z "${LIMINAL_KEYS_STATE_PASSPHRASE:-}" ] && [ ! -f "${passphrase_file}" ]; then
+            pass="$(openssl rand -hex 32)"
+            ( umask 077; printf '%s' "${pass}" > "${passphrase_file}" )
+          elif [ -n "${LIMINAL_KEYS_STATE_PASSPHRASE:-}" ] && [ ! -f "${passphrase_file}" ]; then
+            ( umask 077; printf '%s' "${LIMINAL_KEYS_STATE_PASSPHRASE}" > "${passphrase_file}" )
+            echo "::add-mask::${LIMINAL_KEYS_STATE_PASSPHRASE}"
+          fi
+          echo "LIMINAL_KEYS_STATE_DIR=${state_dir}" >> "${GITHUB_ENV}"
+          echo "LIMINAL_KEYS_STATE_PASSPHRASE_FILE=${passphrase_file}" >> "${GITHUB_ENV}"
+
+      - name: CI enroll (GitHub OIDC)
+        run: |
+          set -euo pipefail
+          args=(ci enroll --tenant-id "${LIMINAL_KEYS_TENANT_ID}" --ttl 60m --json)
+          args+=(--identity "${LIMINAL_KEYS_CERT_SHA1}")
+          liminal-keys "${args[@]}"
 
       - name: Mint ASC token (JSON) and verify 10-minute lifetime
         env:
@@ -131,7 +141,13 @@ jobs:
 
       - name: CI unenroll
         if: always()
-        run: liminal-keys ci unenroll --json
+        run: |
+          set -euo pipefail
+          if command -v liminal-keys >/dev/null 2>&1; then
+            liminal-keys ci unenroll --json
+          else
+            echo "Skipping unenroll (CLI not installed)."
+          fi
 
       - name: Summary
         if: success()
