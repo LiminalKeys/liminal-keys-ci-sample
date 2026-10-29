@@ -46,6 +46,7 @@ With the default `install-host: auto` on a self-hosted runner **when the Host ap
 
 - **No** DMG download, **no** `sudo rm -rf`, **no** `sudo security smartcards`, **no** `/Library/Preferences` changes.
 - The Action launches the existing Host with `--ci-agent` (user session, no sudo) and runs `LiminalKeysHostCLI ci enroll` / `ci sign-check` against the installed helper at `/Applications/Liminal Keys Virtual Smartcard.app/Contents/Helpers/LiminalKeysHostCLI` (paths with spaces are supported).
+- Before enroll, the Action runs a bounded **`status --json`** bridge check (default **20s**). Enroll and sign-check use bounded Host CLI timeouts (defaults **90s** / **60s**). Failures surface actionable messages such as **Host not in `--ci-agent` mode** or **Host not responding (keychain locked or prompt pending?)** with fix commands. Override via `LIMINAL_KEYS_HOST_STATUS_TIMEOUT_MS`, `LIMINAL_KEYS_HOST_ENROLL_TIMEOUT_MS`, and related env vars on the runner.
 - **`ci enroll` / `ci unenroll` use a separate CI device** (`ci-agent-state.json` and Keychain tag `com.liminal.keys.device-auth.ci`), not your interactive enrollment (`agent-state.json` / `com.liminal.keys.device-auth`). Post-step **`ci unenroll` revokes only the ephemeral CI device**; it does not call interactive `unenroll`.
 - Teardown **does not** `pkill` the Host on self-hosted runners (your GUI Host keeps running).
 
