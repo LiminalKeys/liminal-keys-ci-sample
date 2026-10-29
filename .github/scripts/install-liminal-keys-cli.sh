@@ -44,7 +44,7 @@ trap 'rm -rf "${tmpdir}"' EXIT
 
 gh release download "${TAG}" -R "${REPO}" -p "${asset}" -p SHA256SUMS.txt -D "${tmpdir}" --clobber
 
-sums_expected="$(grep "  ${asset}\$" "${tmpdir}/SHA256SUMS.txt" | awk '{print $1}')"
+sums_expected="$(grep -E "[[:space:]]${asset}\$" "${tmpdir}/SHA256SUMS.txt" | awk '{print $1}')"
 if [ -z "${sums_expected}" ]; then
   echo "::error::${asset} not listed in SHA256SUMS.txt for ${TAG}"
   exit 1
