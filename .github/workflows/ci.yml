@@ -48,7 +48,7 @@ jobs:
       - name: Disallow secret/input expansions in run scripts
         run: |
           set -euo pipefail
-          if rg -n '\$\{\{ *(inputs|secrets)\.[a-z_-]*(code|key|token)' .github/workflows sign export --glob '*.yml'; then
+          if rg -n '\$\{\{ *(inputs|secrets)\.[a-z_-]*(code|key|token)' .github/workflows sign export upload --glob '*.yml'; then
             echo "Found forbidden secret/input expression inside workflow YAML (use env: instead)." >&2
             exit 1
           fi

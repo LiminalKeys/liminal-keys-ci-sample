@@ -1,0 +1,59 @@
+# Template: upload an IPA with the Liminal Keys ASC broker (no ASC_KEY_P8 secret).
+# Copy into your app repo after Console import + mint_asc_token allow rule.
+#
+# Requires: cli-v0.1.0+ release, LIMINAL_KEYS_ASC_KEY_ID variable, GitHub OIDC trust.
+name: App Store upload (Liminal Keys broker template)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipa-path:
+        description: Path to the .ipa (for demo, build or copy one locally on self-hosted Mac)
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    env:
+      LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
+      LIMINAL_KEYS_ASC_KEY_ID: ${{ vars.LIMINAL_KEYS_ASC_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate variables
+        run: |
+          set -euo pipefail
+          for name in LIMINAL_KEYS_TENANT_ID LIMINAL_KEYS_ASC_KEY_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Set repository variable ${name}." >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload IPA via ASC broker
+        uses: LiminalKeys/liminal-keys-ci-sample/upload@v1
+        with:
+          tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
+          asc-key-id: ${{ env.LIMINAL_KEYS_ASC_KEY_ID }}
+          ipa-path: ${{ inputs.ipa-path }}
+          bundle-id: com.devfinition.playsync
+          cli-version: "0.1.0"
+          cli-sha256: "<sha256-for-liminal-keys-linux-x64-from-SHA256SUMS.txt>"
+
+      - name: CI unenroll
+        if: always()
+        run: liminal-keys ci unenroll --json
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## ASC broker upload"
+            echo ""
+            echo "Confirm token events in Console **CI & automation → Activity** (Tokens filter)."
+          } >> "$GITHUB_STEP_SUMMARY"
