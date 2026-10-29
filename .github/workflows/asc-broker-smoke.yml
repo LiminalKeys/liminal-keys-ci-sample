@@ -1,0 +1,136 @@
+# Smoke: ASC broker mint + Apple read API (no .p8 on runner).
+# Requires Console: imported ASC key, mint_asc_token allow rule for this repo's GitHub trust,
+# and repository variables LIMINAL_KEYS_TENANT_ID, LIMINAL_KEYS_CERT_SHA1, LIMINAL_KEYS_ASC_KEY_ID.
+name: ASC broker smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
+  LIMINAL_KEYS_CERT_SHA1: ${{ vars.LIMINAL_KEYS_CERT_SHA1 }}
+  LIMINAL_KEYS_ASC_KEY_ID: ${{ vars.LIMINAL_KEYS_ASC_KEY_ID }}
+  LK_CLI_VERSION: "0.1.1"
+  LK_CLI_SHA256_LINUX_X64: d161617f2bfdd749f43297b5eccd700a9f88686531933cc07cae9c091adb7697
+
+jobs:
+  asc-broker-smoke:
+    name: Enroll + mint + Apple apps
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate repository variables
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in LIMINAL_KEYS_TENANT_ID LIMINAL_KEYS_CERT_SHA1 LIMINAL_KEYS_ASC_KEY_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("${name}")
+            fi
+          done
+          if ((${#missing[@]} > 0)); then
+            echo "::error::Set repository Actions variables: ${missing[*]}. LIMINAL_KEYS_ASC_KEY_ID is the Liminal UUID from Console after ASC key import (not Apple's Key ID)." >&2
+            exit 1
+          fi
+          if ! [[ "${LIMINAL_KEYS_ASC_KEY_ID}" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+            echo "::error::LIMINAL_KEYS_ASC_KEY_ID must be a UUID (Console import id)." >&2
+            exit 1
+          fi
+
+      - name: Setup Liminal Keys CLI and enroll (GitHub OIDC)
+        uses: LiminalKeys/liminal-keys/actions/setup-liminal-keys@f6fc33251c648fe2bd6b1d86239d99defdbd5ab1
+        with:
+          version: ${{ env.LK_CLI_VERSION }}
+          sha256: ${{ env.LK_CLI_SHA256_LINUX_X64 }}
+          tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
+          identity-sha1: ${{ env.LIMINAL_KEYS_CERT_SHA1 }}
+          ttl: 60m
+          enroll: "true"
+
+      - name: Mint ASC token (JSON) and verify 10-minute lifetime
+        env:
+          MINT_JSON: ${{ runner.temp }}/asc-mint.json
+        run: |
+          set -euo pipefail
+          mint_json="${MINT_JSON}"
+          liminal-keys asc token --asc-key-id "${LIMINAL_KEYS_ASC_KEY_ID}" --json > "${mint_json}"
+          token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "${mint_json}")"
+          exp_minutes="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["expMinutes"])' "${mint_json}")"
+          if [[ "${exp_minutes}" != "10" ]]; then
+            echo "::error::Expected expMinutes=10, got ${exp_minutes}" >&2
+            exit 1
+          fi
+          echo "::add-mask::${token}"
+          python3 <<'PY' "${token}"
+          import base64, json, sys, time
+          jwt = sys.argv[1]
+          parts = jwt.split(".")
+          if len(parts) != 3:
+              raise SystemExit("JWT must have three segments")
+          payload = parts[1] + "=" * (-len(parts[1]) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload))
+          now = int(time.time())
+          exp = int(claims["exp"])
+          iat = int(claims.get("iat", now))
+          ttl = exp - iat
+          if ttl < 540 or ttl > 660:
+              raise SystemExit(f"JWT lifetime {ttl}s outside 540–660s (expected ~600s)")
+          if exp < now + 540 or exp > now + 660:
+              raise SystemExit(f"JWT exp {exp} not ~now+600 (now={now})")
+          print(f"JWT lifetime OK ({ttl}s, exp≈now+{exp - now}s)")
+          PY
+
+      - name: Apple App Store Connect GET /v1/apps
+        env:
+          MINT_JSON: ${{ runner.temp }}/asc-mint.json
+        run: |
+          set -euo pipefail
+          token="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "${MINT_JSON}")"
+          http_code="$(curl -sS -o "${RUNNER_TEMP}/apple-apps.json" -w '%{http_code}' \
+            -H "Authorization: Bearer ${token}" \
+            "https://api.appstoreconnect.apple.com/v1/apps?limit=1")"
+          if [[ "${http_code}" != "200" ]]; then
+            echo "::error::Apple API returned HTTP ${http_code}" >&2
+            head -c 500 "${RUNNER_TEMP}/apple-apps.json" >&2 || true
+            exit 1
+          fi
+          echo "Apple GET /v1/apps?limit=1 returned 200."
+
+      - name: CLI masks token on interactive stdout (no full JWT in log)
+        run: |
+          set -euo pipefail
+          display_log="${RUNNER_TEMP}/asc-token-display.log"
+          # Pseudo-TTY so the CLI prints MaskJwtForDisplay (not the full JWT).
+          script -qefc "liminal-keys asc token --asc-key-id ${LIMINAL_KEYS_ASC_KEY_ID}" /dev/null 2>&1 | tee "${display_log}"
+          if grep -E 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' "${display_log}"; then
+            echo "::error::Job log contains a full JWT; expected masked display only." >&2
+            exit 1
+          fi
+          if ! grep -E 'eyJ[A-Za-z0-9_-]{8}…[A-Za-z0-9_-]{4}' "${display_log}"; then
+            echo "::error::Expected masked token line (eyJxxxxxxxx…yyyy) in log." >&2
+            cat "${display_log}" >&2
+            exit 1
+          fi
+          echo "Masked token display OK."
+
+      - name: CI unenroll
+        if: always()
+        run: liminal-keys ci unenroll --json
+
+      - name: Summary
+        if: success()
+        run: |
+          {
+            echo "## ASC broker smoke"
+            echo ""
+            echo "- Enrolled via GitHub OIDC (same trust as **Liminal Keys dry run** when workflow glob covers this file)."
+            echo "- \`liminal-keys asc token\`: **expMinutes=10**, JWT **exp ≈ now+600s**."
+            echo "- Apple **GET /v1/apps?limit=1** → **200**."
+            echo "- Interactive CLI output is **masked** (no full JWT in the job log)."
+            echo ""
+            echo "Confirm **Console → CI & automation → Activity** (Tokens) for this run."
+          } >> "${GITHUB_STEP_SUMMARY}"
