@@ -115,8 +115,9 @@ jobs:
             echo "::error::Job log contains a full JWT; expected masked display only." >&2
             exit 1
           fi
-          if ! grep -E 'eyJ[A-Za-z0-9_-]{8}…[A-Za-z0-9_-]{4}' "${display_log}"; then
-            echo "::error::Expected masked token line (eyJxxxxxxxx…yyyy) in log." >&2
+          # CLI MaskJwtForDisplay: first 8 JWT chars + … + last 4 (see SecretRedaction.MaskJwtForDisplay).
+          if ! grep -E 'eyJ[A-Za-z0-9_-]{5}…[A-Za-z0-9_-]{4}' "${display_log}"; then
+            echo "::error::Expected masked token line (8-char prefix…4-char suffix) in log." >&2
             cat "${display_log}" >&2
             exit 1
           fi
