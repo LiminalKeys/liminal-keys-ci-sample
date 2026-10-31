@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: [self-hosted, macOS]
+    runs-on: [self-hosted, macOS, X64]
     environment: app-store-release
     env:
       LIMINAL_KEYS_TENANT_ID: ${{ vars.LIMINAL_KEYS_TENANT_ID }}
