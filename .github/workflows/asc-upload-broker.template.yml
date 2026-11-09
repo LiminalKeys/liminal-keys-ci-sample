@@ -41,9 +41,9 @@ jobs:
           tenant-id: ${{ env.LIMINAL_KEYS_TENANT_ID }}
           asc-key-id: ${{ env.LIMINAL_KEYS_ASC_KEY_ID }}
           ipa-path: ${{ inputs.ipa-path }}
-          bundle-id: com.devfinition.playsync
-          cli-version: "0.1.0"
-          cli-sha256: "<sha256-for-liminal-keys-linux-x64-from-SHA256SUMS.txt>"
+          bundle-id: com.example.app
+          cli-version: "0.1.10"
+          cli-sha256: "c9495db59e9433fcb2ac118b9a4e7d18421714da7d42780a39f6af9899c711d5"
 
       - name: CI unenroll
         if: always()
