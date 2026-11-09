@@ -20,7 +20,7 @@ Composite Action for **App Store Connect upload without a `.p8` on the runner**:
 | `tenant-id` | yes | Workspace tenant UUID |
 | `asc-key-id` | yes | Liminal ASC upload key UUID |
 | `ipa-path` | yes | Path to `.ipa` |
-| `bundle-id` | REST | e.g. `com.devfinition.playsync` |
+| `bundle-id` | REST | e.g. `com.example.app` |
 | `app-id` | REST | Alternative to bundle-id |
 | `transporter` | no | `true` for iTMSTransporter (macOS only) |
 | `cli-version` | yes | Semver from `cli-v*` tag |
