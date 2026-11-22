@@ -1,5 +1,9 @@
 # Liminal Keys — GitHub Actions signing (macOS / iOS)
 
+> **What Liminal Keys is.** Liminal Keys is a control layer over signatures: signing certificates and keys stay in **Key Vault**, and workspace policy — **deny**, **require approval**, or **auto-sign** — plus human approval decide when a signature is allowed. **AI agents** (for example Claude) can sign PDFs and other documents via the official Claude plugin and MCP ([Sign PDFs and documents with Claude (AI agents docs)](https://www.liminalkeys.com/docs/agents/)). Liminal Keys also supports **app and code signing** for Mac, Xcode, and CI ([product site](https://www.liminalkeys.com/) · [CI docs](https://www.liminalkeys.com/docs/pipelines/)).
+>
+> **What this repository is.** This is the sample and the GitHub Actions for the **CI / macOS / iOS** path only (ephemeral CI devices, optional Liminal Keys Virtual Smartcard on self-hosted Macs, App Store / Developer ID). It is not the Claude plugin and it is not the way to sign a PDF.
+
 Companies keep control of their most valuable assets — **certificates and signing keys** — in **Key Vault**, while agencies and contractors build and ship under the company’s policy. Liminal Keys connects CI to that custody without copying private keys onto runners.
 
 Sign macOS and iOS builds in GitHub Actions with **ephemeral CI devices**: GitHub OIDC (or an optional `lkci_` key), the [`sign`](sign/) Action (`LiminalKeys/liminal-keys-ci-sample/sign@v1`), optional [`export`](export/) for App Store IPA export + verification (`export@v1`), optional [`upload`](upload/) to send an IPA via the **ASC broker** (`upload@v1`, no `.p8` on the runner), and your signing identity stored in **Key Vault**. Private keys never leave Liminal Keys custody.
@@ -24,7 +28,7 @@ This repository ships the Actions, **dry-run** and **sign-sample** workflows, an
 
 ### 2. Console — CI & automation (Trusts tab)
 
-Full customer guide: [Liminal Keys `ci-quickstart`](https://github.com/LiminalKeys/liminal-keys/blob/main/docs/ci-quickstart.md) (private repo) — summary below using mock names (`acme-corp/acme-ios`).
+Full customer guide: [Liminal Keys CI quickstart](https://www.liminalkeys.com/docs/pipelines/quickstart/) — summary below using mock names (`acme-corp/acme-ios`).
 
 1. Open [Liminal Keys Console](https://console.liminalkeys.com) → **CI & automation**. Use the tabs **Trusts**, **Activity**, and **Enrollment keys**.
 2. Complete the **Set up CI signing** checklist on **Trusts** (all three steps):
