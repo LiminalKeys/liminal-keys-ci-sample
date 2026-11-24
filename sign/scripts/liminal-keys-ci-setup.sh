@@ -47,6 +47,40 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# Parse GET /v1/public/agent/mac JSON via argv (heredoc+stdin breaks on some Python 3.15 runners).
+meta_json_field() {
+  local field="$1"
+  local raw="${2:-}"
+  python3 - "$field" "$raw" <<'PY'
+import json, sys
+field, raw = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else "").strip()
+if not raw:
+    if field == "available":
+        print("false")
+    elif field == "sha256":
+        sys.exit(1)
+    else:
+        print("unknown")
+    raise SystemExit(0)
+decoder = json.JSONDecoder()
+try:
+    obj, _end = decoder.raw_decode(raw)
+except json.JSONDecodeError as exc:
+    print(f"Mac agent metadata JSON parse failed: {exc}", file=sys.stderr)
+    sys.exit(1)
+if field == "available":
+    val = obj.get("available", False)
+    print("true" if val in (True, "true", "True", 1) else "false")
+elif field == "sha256":
+    val = obj.get("sha256") or ""
+    if not val:
+        sys.exit(1)
+    print(val)
+else:
+    print(obj.get(field, "unknown"))
+PY
+}
+
 version_ge() {
   local installed="$1"
   local minimum="$2"
@@ -167,7 +201,7 @@ skip_host_install() {
 
   local meta_ver="unknown"
   if meta_json="$(curl -fsSL "${API_BASE%/}/v1/public/agent/mac" 2>/dev/null || true)"; then
-    meta_ver="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("version","unknown"))' <<<"$meta_json" 2>/dev/null || echo unknown)"
+    meta_ver="$(meta_json_field version "$meta_json" 2>/dev/null || echo unknown)"
   fi
   finish_setup "$meta_ver"
   exit 0
@@ -188,15 +222,15 @@ if [[ -z "$HOST_DMG_URL" ]]; then
   META_JSON="$(curl -fsSL "${API_BASE%/}/v1/public/agent/mac")"
   HOST_DMG_URL="${API_BASE%/}/v1/public/agent/mac/download"
   if [[ -z "$HOST_DMG_SHA256" ]]; then
-    HOST_DMG_SHA256="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sha256"])' <<<"$META_JSON")"
+    HOST_DMG_SHA256="$(meta_json_field sha256 "$META_JSON")"
   fi
 else
   META_JSON="$(curl -fsSL "${API_BASE%/}/v1/public/agent/mac" 2>/dev/null || true)"
 fi
 
-PUBLISHED_VERSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("version","unknown"))' <<<"${META_JSON:-{\"version\":\"unknown\"}}")"
-AVAILABLE="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("available", False))' <<<"${META_JSON:-{\"available\": true}}")"
-if [[ -n "$META_JSON" && "$AVAILABLE" != "True" && "$AVAILABLE" != "true" ]]; then
+PUBLISHED_VERSION="$(meta_json_field version "$META_JSON")"
+AVAILABLE="$(meta_json_field available "$META_JSON")"
+if [[ -n "$META_JSON" && "$AVAILABLE" != "true" ]]; then
   echo "Mac agent is not published (available=false)." >&2
   SETUP_FAILED=1
   exit 1

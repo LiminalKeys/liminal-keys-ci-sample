@@ -26,6 +26,11 @@ permissions:
   id-token: write
   contents: read
 
+# Parallel workflow_dispatch runs must not cancel each other (Phase A matrix).
+concurrency:
+  group: sign-sample-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   sign-sample:
     name: Sign sample (${{ inputs.os }})
