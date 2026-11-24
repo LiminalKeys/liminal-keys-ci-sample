@@ -16,6 +16,8 @@ MOUNT_DIR="${WORK_DIR}/dmg-mount"
 APP_NAME="Liminal Keys Virtual Smartcard.app"
 TARGET_APP="/Applications/${APP_NAME}"
 CLI_PATH="${TARGET_APP}/Contents/Helpers/LiminalKeysHostCLI"
+HOST_BIN="${TARGET_APP}/Contents/MacOS/LiminalKeysVirtualSmartcard"
+HOST_LOG="${WORK_DIR}/ci-agent-host.log"
 TOKEN_ID="com.liminal.keys.host.token"
 APPEX_PATH="$TARGET_APP/Contents/PlugIns/LiminalKeysTokenExtension.appex"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
@@ -163,12 +165,40 @@ should_install_host() {
   esac
 }
 
-launch_ci_agent() {
+host_process_running() {
+  pgrep -f 'LiminalKeysVirtualSmartcard' >/dev/null 2>&1 \
+    || pgrep -fl 'Liminal Keys Virtual Smartcard' >/dev/null 2>&1
+}
+
+start_ci_agent_host() {
+  : >"${HOST_LOG}"
   echo "Launching Host (CI agent mode)..."
-  open -gj -a "Liminal Keys Virtual Smartcard" --args --ci-agent
+  pkill -f "${HOST_BIN}.*--ci-agent" 2>/dev/null || true
+  sleep 1
+  if [[ -x "$HOST_BIN" ]]; then
+    if ! /usr/bin/open -gn "$TARGET_APP" --args --ci-agent 2>>"${HOST_LOG}"; then
+      echo "open -gn on bundle failed (see ${HOST_LOG})" >&2
+    fi
+    sleep 2
+    if ! host_process_running; then
+      echo "open did not start Host; launching binary directly (nohup)..."
+      nohup env LIMINAL_KEYS_CI_AGENT=1 "$HOST_BIN" --ci-agent >>"${HOST_LOG}" 2>&1 &
+      disown -h $! 2>/dev/null || true
+    fi
+  else
+    /usr/bin/open -gj -a "Liminal Keys Virtual Smartcard" --args --ci-agent 2>>"${HOST_LOG}" || true
+  fi
+}
+
+launch_ci_agent() {
+  start_ci_agent_host
   local attempt
-  for attempt in $(seq 1 45); do
-    if ! pgrep -fl "Liminal Keys Virtual Smartcard" >/dev/null 2>&1; then
+  for attempt in $(seq 1 60); do
+    if ! host_process_running; then
+      if [[ "$attempt" -eq 15 || "$attempt" -eq 30 ]]; then
+        echo "Host process missing at attempt ${attempt}; retrying direct launch..." >&2
+        start_ci_agent_host
+      fi
       sleep 2
       continue
     fi
@@ -181,6 +211,8 @@ launch_ci_agent() {
     sleep 2
   done
   echo "Warning: Host bridge not ready after wait; Action will retry status." >&2
+  echo "---- ci-agent-host.log (tail) ----"
+  tail -n 120 "${HOST_LOG}" 2>/dev/null || true
 }
 
 finish_setup() {

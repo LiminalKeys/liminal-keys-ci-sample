@@ -207,6 +207,12 @@ async function run() {
     await new Promise((resolve) => setTimeout(resolve, statusDelayMs));
   }
   if (!statusResult || statusResult.exitCode !== 0) {
+    if (setupResult.stdout) {
+      core.error('Host setup stdout (last 8k):\n' + setupResult.stdout.slice(-8192));
+    }
+    if (setupResult.stderr) {
+      core.error('Host setup stderr (last 8k):\n' + setupResult.stderr.slice(-8192));
+    }
     failHostCli(statusResult ?? { exitCode: 1, stdout: '', stderr: '' }, 'status');
     return;
   }
