@@ -19,7 +19,8 @@ on:
       os:
         description: macOS runner
         type: choice
-        options: [macos-14-large, macos-15, macos-26]
+        # macos-14* labels retired 2026-11-02; use macos-15-intel for Intel-on-15 coverage.
+        options: [macos-15-intel, macos-15, macos-26]
         default: macos-15
 
 permissions:
