@@ -22,12 +22,10 @@ const {
 const {
   buildCiEnrollArgs,
   buildCiSignCheckArgs,
-  buildHostStatusArgs,
 } = require('./lib/host-cli-args');
 const { validateOidcOrCiKey } = require('./lib/auth');
 const { classifyHostCliFailure } = require('./lib/host-ci-errors');
 const {
-  hostStatusTimeoutMs,
   hostEnrollTimeoutMs,
   hostSignCheckTimeoutMs,
   hostSetupTimeoutMs,
@@ -174,48 +172,12 @@ async function run() {
     return;
   }
 
-  core.info('Checking Host bridge reachability (status)...');
-  const statusEnv = {
-    ...process.env,
-    LIMINAL_KEYS_API_BASE_URL: apiBaseUrl,
-  };
-  const statusArgs = buildHostStatusArgs({ apiBaseUrl });
-  const maxStatusAttempts = 30;
-  const statusDelayMs = 2000;
-  /** @type {import('./lib/exec-json').ExecJsonResult | undefined} */
-  let statusResult;
-  for (let attempt = 1; attempt <= maxStatusAttempts; attempt += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    statusResult = await execCapture(HOST_CLI, statusArgs, {
-      env: statusEnv,
-      secrets,
-      timeoutMs: hostStatusTimeoutMs(),
-    });
-    if (statusResult.exitCode === 0) {
-      break;
-    }
-    const blob = `${statusResult.stdout}\n${statusResult.stderr}`.toLowerCase();
-    const bridgeStarting =
-      blob.includes('host bridge unavailable') || blob.includes('not running');
-    if (!bridgeStarting || attempt === maxStatusAttempts) {
-      break;
-    }
-    core.info(
-      `Host status attempt ${attempt}/${maxStatusAttempts}: CI agent bridge not ready; waiting ${statusDelayMs}ms`,
-    );
-    // eslint-disable-next-line no-await-in-loop
-    await new Promise((resolve) => setTimeout(resolve, statusDelayMs));
+  if (setupResult.stdout.trim()) {
+    core.info(`Host setup log (last 4k):\n${setupResult.stdout.slice(-4096)}`);
   }
-  if (!statusResult || statusResult.exitCode !== 0) {
-    if (setupResult.stdout) {
-      core.error('Host setup stdout (last 8k):\n' + setupResult.stdout.slice(-8192));
-    }
-    if (setupResult.stderr) {
-      core.error('Host setup stderr (last 8k):\n' + setupResult.stderr.slice(-8192));
-    }
-    failHostCli(statusResult ?? { exitCode: 1, stdout: '', stderr: '' }, 'status');
-    return;
-  }
+
+  // Do not call `status` before enroll: the CLI only auto-launches Host with `--ci-agent` for
+  // `ci enroll` / `ci unenroll` (HostCLIBridgeClient.notifyOrLaunchHost).
 
   const enrollEnv = {
     ...process.env,
@@ -233,13 +195,40 @@ async function run() {
   });
 
   core.info('Enrolling ephemeral CI signing device...');
-  const enrollResult = await execCapture(HOST_CLI, enrollArgs, {
-    env: enrollEnv,
-    secrets,
-    timeoutMs: hostEnrollTimeoutMs(),
-  });
-  if (enrollResult.exitCode !== 0) {
-    failHostCli(enrollResult, 'enroll');
+  const maxEnrollAttempts = 15;
+  const enrollDelayMs = 3000;
+  /** @type {import('./lib/exec-json').ExecJsonResult | undefined} */
+  let enrollResult;
+  for (let attempt = 1; attempt <= maxEnrollAttempts; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    enrollResult = await execCapture(HOST_CLI, enrollArgs, {
+      env: enrollEnv,
+      secrets,
+      timeoutMs: hostEnrollTimeoutMs(),
+    });
+    if (enrollResult.exitCode === 0) {
+      break;
+    }
+    const blob = `${enrollResult.stdout}\n${enrollResult.stderr}`.toLowerCase();
+    const bridgeStarting =
+      blob.includes('host bridge unavailable') || blob.includes('not running');
+    if (!bridgeStarting || attempt === maxEnrollAttempts) {
+      break;
+    }
+    core.info(
+      `ci enroll attempt ${attempt}/${maxEnrollAttempts}: waiting for CI agent bridge (${enrollDelayMs}ms)`,
+    );
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, enrollDelayMs));
+  }
+  if (!enrollResult || enrollResult.exitCode !== 0) {
+    if (setupResult.stdout) {
+      core.error('Host setup stdout (last 8k):\n' + setupResult.stdout.slice(-8192));
+    }
+    if (setupResult.stderr) {
+      core.error('Host setup stderr (last 8k):\n' + setupResult.stderr.slice(-8192));
+    }
+    failHostCli(enrollResult ?? { exitCode: 1, stdout: '', stderr: '' }, 'enroll');
     return;
   }
 
