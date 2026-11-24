@@ -19,7 +19,7 @@ on:
       os:
         description: macOS runner
         type: choice
-        options: [macos-14, macos-15, macos-26]
+        options: [macos-14-large, macos-15, macos-26]
         default: macos-15
 
 permissions:

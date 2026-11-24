@@ -175,16 +175,39 @@ async function run() {
   }
 
   core.info('Checking Host bridge reachability (status)...');
-  const statusResult = await execCapture(HOST_CLI, buildHostStatusArgs({ apiBaseUrl }), {
-    env: {
-      ...process.env,
-      LIMINAL_KEYS_API_BASE_URL: apiBaseUrl,
-    },
-    secrets,
-    timeoutMs: hostStatusTimeoutMs(),
-  });
-  if (statusResult.exitCode !== 0) {
-    failHostCli(statusResult, 'status');
+  const statusEnv = {
+    ...process.env,
+    LIMINAL_KEYS_API_BASE_URL: apiBaseUrl,
+  };
+  const statusArgs = buildHostStatusArgs({ apiBaseUrl });
+  const maxStatusAttempts = 30;
+  const statusDelayMs = 2000;
+  /** @type {import('./lib/exec-json').ExecJsonResult | undefined} */
+  let statusResult;
+  for (let attempt = 1; attempt <= maxStatusAttempts; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    statusResult = await execCapture(HOST_CLI, statusArgs, {
+      env: statusEnv,
+      secrets,
+      timeoutMs: hostStatusTimeoutMs(),
+    });
+    if (statusResult.exitCode === 0) {
+      break;
+    }
+    const blob = `${statusResult.stdout}\n${statusResult.stderr}`.toLowerCase();
+    const bridgeStarting =
+      blob.includes('host bridge unavailable') || blob.includes('not running');
+    if (!bridgeStarting || attempt === maxStatusAttempts) {
+      break;
+    }
+    core.info(
+      `Host status attempt ${attempt}/${maxStatusAttempts}: CI agent bridge not ready; waiting ${statusDelayMs}ms`,
+    );
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, statusDelayMs));
+  }
+  if (!statusResult || statusResult.exitCode !== 0) {
+    failHostCli(statusResult ?? { exitCode: 1, stdout: '', stderr: '' }, 'status');
     return;
   }
 
