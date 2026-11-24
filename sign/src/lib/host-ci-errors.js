@@ -52,9 +52,13 @@ function classifyHostCliFailure({ exitCode, stdout, stderr, timedOut = false, ph
   }
 
   const phaseLabel = phase === 'status' ? 'Host status check' : `ci ${phase}`;
+  let detail = blob || '(no Host CLI output)';
+  if (phase === 'setup' || phase === 'enroll' || phase === 'sign-check') {
+    detail = [detail, '(On failure, see setup step log for token extension dump.)'].join('\n\n');
+  }
   return {
     headline: `${phaseLabel} failed (exit ${exitCode}).`,
-    detail: blob || '(no Host CLI output)',
+    detail,
   };
 }
 

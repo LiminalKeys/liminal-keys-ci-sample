@@ -11,10 +11,15 @@ on:
         description: Test identity SHA-1 (or set repo variable LIMINAL_KEYS_CERT_SHA1)
         required: false
         type: string
+      expected-authority:
+        description: Expected codesign Authority= leaf name (self-signed test identity display name)
+        required: false
+        type: string
+        default: Liminal CI Test
       os:
         description: macOS runner
         type: choice
-        options: [macos-15, macos-14]
+        options: [macos-14, macos-15, macos-26]
         default: macos-15
 
 permissions:
@@ -29,6 +34,7 @@ jobs:
     env:
       LIMINAL_KEYS_TENANT_ID: ${{ inputs.tenant-id || vars.LIMINAL_KEYS_TENANT_ID }}
       LIMINAL_KEYS_CERT_SHA1: ${{ inputs.identity-sha1 || vars.LIMINAL_KEYS_CERT_SHA1 }}
+      EXPECTED_AUTHORITY: ${{ inputs.expected-authority || 'Liminal CI Test' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,20 +74,17 @@ jobs:
           APP_PATH: ${{ steps.build.outputs.app-path }}
         run: |
           set -euo pipefail
-          codesign --force --options runtime --timestamp=none -s "$SIGNING_SHA1" "$APP_PATH"
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          codesign -dvv "$APP_PATH" 2>&1 | tee "${{ runner.temp }}/codesign-dvv.txt"
-          grep -F "Authority=Liminal CI Test" "${{ runner.temp }}/codesign-dvv.txt"
-
-      - name: Codesign with timestamp (informational)
-        continue-on-error: true
-        env:
-          SIGNING_SHA1: ${{ steps.lk.outputs.signing-sha1 }}
-          APP_PATH: ${{ steps.build.outputs.app-path }}
-        run: |
-          set -euo pipefail
           codesign --force --options runtime --timestamp -s "$SIGNING_SHA1" "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          codesign -dvv "$APP_PATH" 2>&1 | tee "${{ runner.temp }}/codesign-dvv.txt"
+          grep -F "Authority=${EXPECTED_AUTHORITY}" "${{ runner.temp }}/codesign-dvv.txt"
+          echo "==> Timestamp token (expect Apple timestamp)"
+          grep -E 'Timestamp=|TimeStamp=' "${{ runner.temp }}/codesign-dvv.txt" || {
+            echo "Missing timestamp on signature chain." >&2
+            exit 1
+          }
+          echo "==> Chain check"
+          codesign --verify --deep --strict --verbose=4 "$APP_PATH"
 
       # Self-signed Liminal CI Test cannot be notarized; template only (never enabled in this repo).
       - name: Notarize and staple (customer ASC key — template, skipped)
@@ -116,6 +119,7 @@ jobs:
             echo "| Device ID | \`${DEVICE_ID:-n/a}\` |"
             echo "| Signing SHA-1 | \`${SIGNING_SHA1:-n/a}\` |"
             echo "| Expires at | \`${EXPIRES_AT:-n/a}\` |"
+            echo "| Expected authority | \`${EXPECTED_AUTHORITY}\` |"
             echo "| Run | ${RUN_URL} |"
             echo ""
             echo "Post-step revoke is reported by the Action post hook (device revoked (self)) when unenroll succeeds."
