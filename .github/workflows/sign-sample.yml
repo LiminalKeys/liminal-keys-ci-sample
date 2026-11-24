@@ -27,9 +27,9 @@ permissions:
   id-token: write
   contents: read
 
-# Parallel workflow_dispatch runs must not cancel each other (Phase A matrix).
+# One DMG install at a time — parallel jobs share physical runners and race on /Applications.
 concurrency:
-  group: sign-sample-${{ github.run_id }}
+  group: sign-sample-global-install
   cancel-in-progress: false
 
 jobs:
