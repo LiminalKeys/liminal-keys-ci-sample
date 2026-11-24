@@ -166,10 +166,21 @@ should_install_host() {
 launch_ci_agent() {
   echo "Launching Host (CI agent mode)..."
   open -gj -a "Liminal Keys Virtual Smartcard" --args --ci-agent
-  sleep 5
-  if ! pgrep -fl "Liminal Keys Virtual Smartcard" >/dev/null 2>&1; then
-    echo "Warning: Host process not found in pgrep; continuing." >&2
-  fi
+  local attempt
+  for attempt in $(seq 1 45); do
+    if ! pgrep -fl "Liminal Keys Virtual Smartcard" >/dev/null 2>&1; then
+      sleep 2
+      continue
+    fi
+    if host_cli_ready; then
+      if "$CLI_PATH" status --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("ok") else 1)' 2>/dev/null; then
+        echo "Host CI agent bridge ready (attempt ${attempt})"
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+  echo "Warning: Host bridge not ready after wait; Action will retry status." >&2
 }
 
 finish_setup() {
